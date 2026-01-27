@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-27
+### Added
+- **Tools**: Added `src/clean_urls.py` for removing duplicate URLs from input files.
+- **Tools**: Added `src/regenerate_index.py` for rebuilding `index.html` instantly without re-downloading.
+- **Sorting**: `index.html` now sorts articles based on the order defined in `urls.txt` (if provided).
+
+### Fixed
+- **Localization**: Fixed an issue where X automatically translated titles/content to Chinese based on cookies. The tool now filters out language preferences to ensure original content is saved.
+- **Input Parsing**: Fixed a bug where commented URLs with leading whitespace were not correctly ignored.
+
 ## [1.2.0] - 2025-01-27
 ### Added
 - **Global Index**: Automatically generates `index.html` to visualize all downloaded articles.

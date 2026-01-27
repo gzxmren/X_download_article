@@ -19,6 +19,16 @@
     *   **双重格式**：默认生成高保真 HTML，可选生成 Markdown 格式。
     *   **Cookie 注入**：支持 JSON/Netscape 格式 Cookie，安全复用浏览器登录状态。
 
+### 实用工具
+*   **去重工具**：如果 `input/urls.txt` 中积累了大量重复链接，可以运行以下命令进行清理（保留原顺序和注释）：
+    ```bash
+    python3 src/clean_urls.py
+    ```
+*   **重建索引**：如果需要重新生成 `index.html`（例如为了更新排序或修复损坏的索引），无需重新下载文章，可运行：
+    ```bash
+    python3 src/regenerate_index.py
+    ```
+
 ## 📂 项目结构 (模块化架构)
 
 ```text

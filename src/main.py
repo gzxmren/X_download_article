@@ -167,8 +167,10 @@ def main():
     if os.path.isfile(args.input):
         logger.info(f"Reading URLs from file: {args.input}")
         with open(args.input, 'r') as f:
-            # Strip whitespace and various quote characters
-            urls = [line.strip().strip('"\'“”') for line in f if line.strip() and not line.startswith("#")]
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    urls.append(stripped.strip('"\'“”'))
     else:
          urls = [args.input.strip().strip('"\'“”')]
 
@@ -190,8 +192,10 @@ def main():
         # Load Cookies
         cookies = load_cookies(args.cookies)
         if cookies:
+            # Filter out 'lang' cookie to prevent X from forcing translated titles/UI
+            cookies = [c for c in cookies if c.get('name') != 'lang']
             context.add_cookies(cookies)
-            logger.info(f"Loaded {len(cookies)} cookies.")
+            logger.info(f"Loaded {len(cookies)} cookies (filtered language prefs).")
         else:
             logger.warning("Running without cookies (Guest Mode). Content may be limited.")
 
@@ -204,7 +208,7 @@ def main():
     
     # Generate Index after all tasks
     logger.info("Generating Global Index...")
-    indexer = IndexGenerator(args.output)
+    indexer = IndexGenerator(args.output, ordered_urls=urls)
     indexer.generate()
     logger.info("All tasks completed.")
 

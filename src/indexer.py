@@ -3,9 +3,10 @@ import json
 from datetime import datetime
 
 class IndexGenerator:
-    def __init__(self, output_root: str):
+    def __init__(self, output_root: str, ordered_urls: list = None):
         self.output_root = output_root
         self.index_file = os.path.join(output_root, "index.html")
+        self.ordered_urls = ordered_urls or []
 
     def generate(self):
         """Scans all subdirectories for meta.json and rebuilds index.html"""
@@ -26,8 +27,19 @@ class IndexGenerator:
                         except Exception as e:
                             print(f"Error reading {meta_path}: {e}")
 
-        # Sort by date (descending)
-        articles.sort(key=lambda x: x.get('date', '0000-00-00'), reverse=True)
+        # Sort Logic
+        if self.ordered_urls:
+            # Create a map of url -> index for O(1) lookup
+            url_order = {url: i for i, url in enumerate(self.ordered_urls)}
+            
+            # Helper to get index, default to infinity if not found (put at end)
+            def get_order(article):
+                return url_order.get(article.get('url', '').strip(), float('inf'))
+            
+            articles.sort(key=get_order)
+        else:
+            # Fallback to date sort if no order provided
+            articles.sort(key=lambda x: x.get('date', '0000-00-00'), reverse=True)
         
         # Generate HTML
         self._write_html(articles)
