@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-01-27
+### Added
+- **Structured Logging**: Introduced `logs/latest_run.jsonl`, a machine-readable JSON log file for automated analysis and dashboarding.
+- **Rich Failure Report**: Upgraded failure reporting to `output/failures.json`. It now includes detailed error messages, timestamps, and retry counts, providing actionable insights into why downloads failed.
+
 ## [1.4.0] - 2026-01-27
 ### Added
 - **Parallel Downloading**: Implemented multi-threaded image downloading using `requests` and `ThreadPoolExecutor` (8 workers), significantly boosting speed for image-heavy threads.

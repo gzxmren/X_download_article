@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import requests
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright, Page
 from markdownify import markdownify as md
@@ -62,13 +63,14 @@ class XDownloader:
         page.wait_for_selector("article", timeout=timeout * 1000)
         time.sleep(3) # Wait for hydration
 
-    def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False) -> bool:
+    def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False):
         """
-        Returns True if successful (or skipped), False if failed.
+        Returns None if successful/skipped.
+        Returns error_dict if failed.
         """
         if not force and self.history.exists(url):
             logger.info(f"⏭️  Skipping already downloaded: {url}")
-            return True
+            return None
 
         logger.info(f"Processing URL: {url}")
         try:
@@ -77,7 +79,12 @@ class XDownloader:
                 self._safe_navigate(page, url, timeout)
             except Exception as e:
                 logger.error(f"❌ Failed to load {url} after retries: {e}")
-                return False
+                return {
+                    "url": url,
+                    "error_msg": f"Navigation failed: {str(e)}",
+                    "timestamp": datetime.now().isoformat(),
+                    "retry_attempts": 3 
+                }
 
             # 2. Scroll
             logger.info(f"Scrolling {scroll_count} times...")
@@ -89,7 +96,12 @@ class XDownloader:
             extractor = XArticleExtractor(page.content(), url)
             if not extractor.is_valid():
                 logger.error("No article found in page content.")
-                return False
+                return {
+                    "url": url,
+                    "error_msg": "No article content found (Extractor invalid)",
+                    "timestamp": datetime.now().isoformat(),
+                    "retry_attempts": 0
+                }
 
             folder_name = extractor.extract_metadata()
             logger.info(f"Target folder: {folder_name}")
@@ -197,11 +209,16 @@ class XDownloader:
             
             self.history.add(url)
             logger.info(f"✅ Download completed: {folder_name}")
-            return True
+            return None
 
         except Exception as e:
             logger.critical(f"Critical error processing {url}: {e}", exc_info=True)
-            return False
+            return {
+                "url": url,
+                "error_msg": f"Critical Exception: {str(e)}",
+                "timestamp": datetime.now().isoformat(),
+                "retry_attempts": 0
+            }
 
     def _save_html(self, folder: str, title: str, content: str):
         path = os.path.join(folder, f"{title}.html")
@@ -247,7 +264,7 @@ def main():
 
     # Initialize Engine
     downloader = XDownloader(args.output, args.markdown)
-    failed_urls = []
+    failures = []
 
     with sync_playwright() as p:
         logger.info(f"Launching browser (Headless: {args.headless})")
@@ -270,9 +287,9 @@ def main():
         page = context.new_page()
 
         for url in urls:
-            success = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
-            if not success:
-                failed_urls.append(url)
+            error_report = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
+            if error_report:
+                failures.append(error_report)
 
         browser.close()
     
@@ -282,12 +299,11 @@ def main():
     indexer.generate()
     
     # Report Failures
-    if failed_urls:
-        fail_path = os.path.join(args.output, "failures.txt")
-        logger.warning(f"⚠️  {len(failed_urls)} URLs failed. Saving list to {fail_path}")
+    if failures:
+        fail_path = os.path.join(args.output, "failures.json")
+        logger.warning(f"⚠️  {len(failures)} URLs failed. Saving report to {fail_path}")
         with open(fail_path, "w", encoding="utf-8") as f:
-            for url in failed_urls:
-                f.write(f"{url}\n")
+            json.dump(failures, f, indent=2, ensure_ascii=False)
     
     logger.info("All tasks completed.")
 

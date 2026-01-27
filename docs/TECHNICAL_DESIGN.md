@@ -79,3 +79,30 @@ class XDownloader:
 
 *   **Retry Logic**: Critical network operations (Page Navigation, Selector Waiting) are wrapped with `tenacity` decorators using exponential backoff.
 *   **Failure Reporting**: Failed tasks are not silent; they are collected and written to a `failures.txt` file at the end of the batch process for easy re-execution.
+
+## 3. Logging System Enhancements
+
+### 3.1 Structured JSON Logs
+*   **Goal**: Enable automated analysis and easier debugging.
+*   **Implementation**: Add a dedicated FileHandler that outputs logs in JSONL format.
+*   **Fields**: `timestamp`, `level`, `module`, `message`, `extra_data` (optional).
+
+### 3.2 Rich Failure Reporting
+*   **Goal**: Provide actionable insights on *why* a URL failed, not just *that* it failed.
+*   **Implementation**: 
+    *   Upgrade `failures.txt` to `failures.json`.
+    *   Structure:
+        ```json
+        [
+          {
+            "url": "https://x.com/...",
+            "error": "TimeoutError: Waited 30s...",
+            "timestamp": "2026-01-27T10:00:00",
+            "retry_count": 3
+          }
+        ]
+        ```
+
+### 3.3 Request Context (Future)
+*   **Goal**: Trace logs belonging to a specific URL processing task in multi-threaded environments.
+*   **Implementation**: Use `logging.LoggerAdapter` or context vars to inject a `request_id` into every log entry generated during a URL's processing lifecycle.
