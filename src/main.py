@@ -4,9 +4,12 @@ import time
 import argparse
 import hashlib
 import json
+import requests
+from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright, Page
 from markdownify import markdownify as md
 from bs4 import BeautifulSoup
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Add project root to sys.path to allow imports from src
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,42 +30,54 @@ class XDownloader:
         self.save_markdown = save_markdown
         self.history = HistoryManager() # Log directory defaults to logs/
 
-    def _download_image(self, page: Page, src: str, output_dir: str) -> str:
-        """Downloads an image and returns the local filepath."""
-        if not src: return None
+    @staticmethod
+    def _download_task(session, url: str, save_path: str) -> bool:
+        """
+        Executes a single image download task using requests.
+        Returns True if successful, False otherwise.
+        """
         try:
-            filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
-            filepath = os.path.join(output_dir, filename)
-            
-            if os.path.exists(filepath):
-                return filepath
-                
-            response = page.request.get(src)
-            if response.status == 200:
-                with open(filepath, "wb") as f:
-                    f.write(response.body())
-                return filepath
+            # Use stream=True to avoid loading large files into memory at once
+            with session.get(url, stream=True, timeout=10) as r:
+                r.raise_for_status()
+                with open(save_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            return True
         except Exception as e:
-            logger.warning(f"Image download failed: {src} ({e})")
-        return None
+            # logger.warning(f"Download failed for {url}: {e}") # Too noisy for threads
+            return False
 
-    def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False):
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _safe_navigate(self, page: Page, url: str, timeout: int):
+        """
+        Navigates to the URL and waits for the article selector.
+        Retries up to 3 times with exponential backoff on failure.
+        """
+        logger.info(f"Navigating to {url}...")
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+        
+        logger.info(f"Waiting for content (timeout: {timeout}s)...")
+        # Ensure we catch the timeout error to trigger retry
+        page.wait_for_selector("article", timeout=timeout * 1000)
+        time.sleep(3) # Wait for hydration
+
+    def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False) -> bool:
+        """
+        Returns True if successful (or skipped), False if failed.
+        """
         if not force and self.history.exists(url):
             logger.info(f"⏭️  Skipping already downloaded: {url}")
-            return
+            return True
 
         logger.info(f"Processing URL: {url}")
         try:
-            # 1. Navigate
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            
-            logger.info(f"Waiting for content (timeout: {timeout}s)...")
+            # 1. Navigate with Retry
             try:
-                page.wait_for_selector("article", timeout=timeout * 1000)
-                time.sleep(3) # Wait for hydration
-            except:
-                logger.error(f"Timeout loading {url}. Skipping.")
-                return
+                self._safe_navigate(page, url, timeout)
+            except Exception as e:
+                logger.error(f"❌ Failed to load {url} after retries: {e}")
+                return False
 
             # 2. Scroll
             logger.info(f"Scrolling {scroll_count} times...")
@@ -74,7 +89,7 @@ class XDownloader:
             extractor = XArticleExtractor(page.content(), url)
             if not extractor.is_valid():
                 logger.error("No article found in page content.")
-                return
+                return False
 
             folder_name = extractor.extract_metadata()
             logger.info(f"Target folder: {folder_name}")
@@ -95,22 +110,72 @@ class XDownloader:
             raw_html = extractor.get_clean_html()
             final_soup = BeautifulSoup(raw_html, "html.parser")
             
-            final_markdown = f"# Source: {url}\n\n"
+            # --- START PARALLEL IMAGE DOWNLOAD ---
+            logger.info("Starting parallel image download...")
             
+            # Prepare Requests Session (Copy Cookies from Playwright)
+            session = requests.Session()
+            # Playwright cookies are list of dicts, requests needs a CookieJar or dict
+            pw_cookies = page.context.cookies()
+            for cookie in pw_cookies:
+                session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+            
+            # Identify a User-Agent to match Playwright
+            ua = page.evaluate("navigator.userAgent")
+            session.headers.update({"User-Agent": ua})
+
+            # Collect tasks
+            download_tasks = []
             articles = final_soup.find_all("article")
             
             for article in articles:
-                # Download Images
                 imgs = article.find_all("img")
                 for img in imgs:
                     src = img.get("src")
                     if src and "profile_images" not in src:
-                        local_path = self._download_image(page, src, assets_dir)
-                        if local_path:
-                            # Rewrite src to relative path
-                            img['src'] = os.path.relpath(local_path, article_dir)
+                        filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
+                        local_filepath = os.path.join(assets_dir, filename)
+                        
+                        # Add to task list if not already exists
+                        if not os.path.exists(local_filepath):
+                            download_tasks.append((img, src, local_filepath))
+                        else:
+                            # Already exists, just update src
+                            img['src'] = os.path.relpath(local_filepath, article_dir)
                             if img.has_attr('srcset'): del img['srcset']
 
+            # Execute tasks in ThreadPool
+            if download_tasks:
+                with ThreadPoolExecutor(max_workers=8) as executor:
+                    # Submit all tasks
+                    future_to_img = {
+                        executor.submit(self._download_task, session, src, path): (img, src, path)
+                        for img, src, path in download_tasks
+                    }
+                    
+                    # Process results as they complete
+                    for future in future_to_img:
+                        img, src, path = future_to_img[future]
+                        try:
+                            if future.result():
+                                # Success: Update src to local path
+                                img['src'] = os.path.relpath(path, article_dir)
+                                if img.has_attr('srcset'): del img['srcset']
+                            else:
+                                # Failure: Keep remote src, add marker
+                                logger.warning(f"Failed to download image: {src}")
+                                img['data-download-status'] = "failed"
+                        except Exception as exc:
+                            logger.error(f"Image task exception: {exc}")
+                            img['data-download-status'] = "error"
+            
+            logger.info("Image processing complete.")
+            # --- END PARALLEL IMAGE DOWNLOAD ---
+
+            final_markdown = f"# Source: {url}\n\n"
+            
+            # Re-iterate for cleanup and markdown generation (using updated soup)
+            for article in articles:
                 # Clean hidden text
                 for hidden in article.find_all(class_=lambda x: x and "r-1awozwy" in x and "r-13gxpu9" in x):
                     hidden.decompose()
@@ -132,9 +197,11 @@ class XDownloader:
             
             self.history.add(url)
             logger.info(f"✅ Download completed: {folder_name}")
+            return True
 
         except Exception as e:
             logger.critical(f"Critical error processing {url}: {e}", exc_info=True)
+            return False
 
     def _save_html(self, folder: str, title: str, content: str):
         path = os.path.join(folder, f"{title}.html")
@@ -180,6 +247,7 @@ def main():
 
     # Initialize Engine
     downloader = XDownloader(args.output, args.markdown)
+    failed_urls = []
 
     with sync_playwright() as p:
         logger.info(f"Launching browser (Headless: {args.headless})")
@@ -202,7 +270,9 @@ def main():
         page = context.new_page()
 
         for url in urls:
-            downloader.process_url(page, url, args.scroll, args.timeout, args.force)
+            success = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
+            if not success:
+                failed_urls.append(url)
 
         browser.close()
     
@@ -210,6 +280,15 @@ def main():
     logger.info("Generating Global Index...")
     indexer = IndexGenerator(args.output, ordered_urls=urls)
     indexer.generate()
+    
+    # Report Failures
+    if failed_urls:
+        fail_path = os.path.join(args.output, "failures.txt")
+        logger.warning(f"⚠️  {len(failed_urls)} URLs failed. Saving list to {fail_path}")
+        with open(fail_path, "w", encoding="utf-8") as f:
+            for url in failed_urls:
+                f.write(f"{url}\n")
+    
     logger.info("All tasks completed.")
 
 if __name__ == "__main__":

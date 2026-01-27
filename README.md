@@ -41,6 +41,9 @@
 │   ├── history.py       # [持久层] 下载记录管理
 │   ├── utils.py         # [工具层] 文件名清洗、Cookie加载
 │   └── logger.py        # [日志层] 全局日志配置
+├── docs/
+│   ├── ROADMAP.md       # 路线图与改进建议
+│   └── TECHNICAL_DESIGN.md # 技术实现方案
 ├── input/
 │   ├── cookies.txt      # (自备) 导出的 Cookie 文件
 │   └── urls.txt         # (自备) 批量下载列表
@@ -106,3 +109,6 @@ X (Twitter) 必须登录才能查看完整内容。
     *   A: 查看终端输出，或检查 `logs/` 目录下的最新日志文件。
 *   **Q: 下载中断了怎么办？**
     *   A: 直接重新运行命令即可。程序会自动识别 `logs/downloaded_history.txt`，跳过已完成的任务。
+
+## 🗓️ 路线图 (Roadmap)
+查看 [docs/ROADMAP.md](docs/ROADMAP.md) 了解未来的功能规划与改进建议。

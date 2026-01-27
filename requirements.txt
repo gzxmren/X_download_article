@@ -2,3 +2,5 @@ playwright
 beautifulsoup4
 markdownify
 requests
+tenacity
+requests

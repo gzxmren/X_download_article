@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-01-27
+### Added
+- **Parallel Downloading**: Implemented multi-threaded image downloading using `requests` and `ThreadPoolExecutor` (8 workers), significantly boosting speed for image-heavy threads.
+- **Robust Error Handling**: Integrated `tenacity` library for automatic retries (up to 3 times with exponential backoff) on network failures.
+- **Failure Reporting**: Generates a `failures.txt` report listing any URLs that failed to download after all retries.
+- **Documentation**: Added `docs/TECHNICAL_DESIGN.md` (architecture details) and `docs/ROADMAP.md` (future plans).
+
 ## [1.3.0] - 2026-01-27
 ### Added
 - **Tools**: Added `src/clean_urls.py` for removing duplicate URLs from input files.
