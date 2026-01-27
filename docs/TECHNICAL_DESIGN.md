@@ -2,107 +2,57 @@
 
 This document records technical decisions, architectural patterns, and proposed optimizations for the X Article Downloader project.
 
-## 1. Image Download Optimization (Planned)
+## 1. Image Download Optimization (Implemented v1.4.0)
+*   **Model**: Hybrid Parallel (Playwright Main Thread + Requests ThreadPool).
+*   **Detail**: High efficiency for asset retrieval without thread-safety risks.
+
+## 2. Global Index & Pagination (Implemented v1.6.0)
+*   **Engine**: Jinja2.
+*   **Feature**: Static site generation with configurable pagination logic.
+
+## 3. Multi-URL Concurrency Design (Target: v2.0)
 
 ### Problem Statement
-*   **Current State**: Image downloading is sequential (blocking) and tightly coupled with the Playwright execution context.
-*   **Issues**: 
-    *   Slow processing speed for articles with many images.
-    *   Playwright objects (`page`, `request`) are not thread-safe, preventing simple parallelization.
-    *   If a download fails, the script warns but leaves the `src` broken or unhandled.
+Currently, URLs are processed sequentially. One URL must complete rendering, scrolling, and metadata extraction before the next begins. This idle time during network waits significantly limits throughput.
 
-### Proposed Architecture: Hybrid Parallel Model
+### Proposed Architecture: Full Asyncio Transition
 
-To achieve high performance without compromising stability, we propose a hybrid model combining **Playwright** (for DOM operations) and **Requests** (for data transfer).
+To support downloading multiple articles at once, the core engine must be converted to an asynchronous non-blocking model.
 
-#### Workflow
+#### Core Components:
 
-1.  **Main Thread (Playwright)**
-    *   Handles browser automation, page navigation, and DOM parsing.
-    *   Extracts all image URLs from the rendered page.
-    *   Copies authentication state (Cookies, User-Agent) to a standard Python `requests.Session` object.
+1.  **Async Playwright (`async_api`)**:
+    *   Switch from `sync_playwright` to `async_playwright`.
+    *   Methods like `page.goto`, `page.wait_for_selector`, and `page.evaluate` will be awaited.
 
-2.  **Worker Threads (Requests + ThreadPool)**
-    *   A `ThreadPoolExecutor` (e.g., 4-8 workers) handles the actual image downloading using the `requests` library.
-    *   **Reasoning**: `requests` is thread-safe and lightweight compared to spinning up multiple browser contexts.
+2.  **Browser Context Isolation**:
+    *   Instead of one `context` for all URLs, each download task will create its own `browser.new_context()`.
+    *   **Benefit**: Complete isolation of cookies/cache per task if needed, and light-weight resource sharing under one browser process.
 
-3.  **Fallback Strategy (Graceful Degradation)**
-    *   **Success**: Replace the HTML `<img>` `src` attribute with the relative local path (`assets/xxx.jpg`).
-    *   **Failure**: 
-        *   **Do NOT** clear the `src`. Keep the original remote URL (Hotlinking) so the image can still load if the network permits.
-        *   Add a `data-download-status="failed"` attribute to the tag for debugging purposes.
+3.  **Concurrency Control (Semaphore)**:
+    *   Use `asyncio.Semaphore(limit=3)` to cap the number of active browser tabs.
+    *   **Reasoning**: Avoid CPU/RAM spikes and reduce the risk of being flagged by X's anti-bot systems.
 
-#### Implementation Blueprint (Pseudocode)
+4.  **Logging Traceability**:
+    *   Implement `logging.LoggerAdapter` to inject a unique `request_id` or `short_hash` of the URL into every log record.
+    *   **Benefit**: Allows users to filter logs for a specific URL when multiple tasks are printing to the same console/file simultaneously.
+
+#### Implementation Blueprint (Async Pseudocode)
 
 ```python
-import requests
-from concurrent.futures import ThreadPoolExecutor
+async def process_task(url, semaphore, downloader):
+    async with semaphore:
+        async with browser.new_context() as context:
+            page = await context.new_page()
+            # Navigation, Scrolling, Extraction logic (all awaited)
+            await downloader.process_url(page, url)
 
-class XDownloader:
-    def _download_task(self, session, url, save_path):
-        """Executed in worker thread via requests"""
-        try:
-            resp = session.get(url, timeout=10) 
-            resp.raise_for_status()
-            with open(save_path, 'wb') as f:
-                f.write(resp.content)
-            return True
-        except Exception:
-            return False
-
-    def process_url(self, page, ...):
-        # 1. Prepare Session (Sync auth state)
-        session = requests.Session()
-        # Transfer cookies from Playwright context to Requests session...
-        
-        # 2. Extract & Plan
-        img_tags = soup.find_all('img')
-        download_jobs = []
-        
-        # 3. Parallel Execute
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            for img in img_tags:
-                src = img.get('src')
-                local_path = ...
-                future = executor.submit(self._download_task, session, src, local_path)
-                download_jobs.append((img, future, local_path))
-        
-        # 4. Resolve & Replace
-        for img, future, local_path in download_jobs:
-            if future.result(): 
-                img['src'] = local_path  # Success: Use local
-            else:
-                img['data-status'] = "remote_fallback" # Fail: Keep remote
+async def main():
+    semaphore = asyncio.Semaphore(Config.CONCURRENCY_LIMIT)
+    tasks = [process_task(url, semaphore, downloader) for url in urls]
+    await asyncio.gather(*tasks)
 ```
 
-### 2. Error Handling & Reliability
-
-*   **Retry Logic**: Critical network operations (Page Navigation, Selector Waiting) are wrapped with `tenacity` decorators using exponential backoff.
-*   **Failure Reporting**: Failed tasks are not silent; they are collected and written to a `failures.txt` file at the end of the batch process for easy re-execution.
-
-## 3. Logging System Enhancements
-
-### 3.1 Structured JSON Logs
-*   **Goal**: Enable automated analysis and easier debugging.
-*   **Implementation**: Add a dedicated FileHandler that outputs logs in JSONL format.
-*   **Fields**: `timestamp`, `level`, `module`, `message`, `extra_data` (optional).
-
-### 3.2 Rich Failure Reporting
-*   **Goal**: Provide actionable insights on *why* a URL failed, not just *that* it failed.
-*   **Implementation**: 
-    *   Upgrade `failures.txt` to `failures.json`.
-    *   Structure:
-        ```json
-        [
-          {
-            "url": "https://x.com/...",
-            "error": "TimeoutError: Waited 30s...",
-            "timestamp": "2026-01-27T10:00:00",
-            "retry_count": 3
-          }
-        ]
-        ```
-
-### 3.3 Request Context (Future)
-*   **Goal**: Trace logs belonging to a specific URL processing task in multi-threaded environments.
-*   **Implementation**: Use `logging.LoggerAdapter` or context vars to inject a `request_id` into every log entry generated during a URL's processing lifecycle.
+## 4. Single-File High Fidelity (Implemented v1.7.0)
+*   **Logic**: Full CSS extraction from source `<style>` tags.
+*   **Integration**: Injected into Jinja2 head via `{{ styles | safe }}` to ensure 1:1 visual match for archives.
