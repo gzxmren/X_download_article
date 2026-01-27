@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Project specific
+input/cookies.txt
+input/cookies.json
+output/
+logs/
+debug_failed_extraction.html
+
+# OS
+.DS_Store
+.vscode/
+.idea/
