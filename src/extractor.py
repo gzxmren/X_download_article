@@ -8,15 +8,14 @@ from .utils import sanitize_filename, get_filename_from_url
 from .logger import logger
 from .config import Config
 
-# Initialize Jinja2 Env
-# Assuming templates are in src/templates. We need absolute path relative to this file.
+# Initialize Jinja2 Env relative to this file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 templates_dir = os.path.join(current_dir, "templates")
 env = Environment(loader=FileSystemLoader(templates_dir))
 
 class XArticleExtractor:
     """
-    Responsible for parsing X (Twitter) HTML content.
+    Responsible for parsing X (Twitter) HTML content and rendering clean local copies.
     """
     def __init__(self, html_content: str, url: str):
         self.soup = BeautifulSoup(html_content, "html.parser")
@@ -30,31 +29,44 @@ class XArticleExtractor:
         """Returns all article tags (main tweet + replies)."""
         return self.soup.find_all(Config.Selectors.ARTICLE)
 
+    def _extract_styles(self, soup: BeautifulSoup) -> str:
+        """
+        Extracts all <style> tags from the source HTML to preserve high-fidelity layout.
+        """
+        style_tags = soup.find_all("style")
+        return "\n".join([str(s) for s in style_tags])
+
     def get_clean_html(self) -> str:
         """
-        Returns a high-fidelity HTML string using Jinja2 templates.
+        Generates a clean, high-fidelity HTML string using Jinja2 templates.
         """
-        # Create a copy to extract pure content
+        # 1. Create a copy to avoid modifying original soup
         clean_soup = BeautifulSoup(str(self.soup), "html.parser")
         
-        # Remove scripts to prevent tracking/errors
-        for script in clean_soup(["script", "noscript", "iframe"]):
-            script.decompose()
+        # 2. Strip unnecessary/dangerous tags
+        for tag in clean_soup(["script", "noscript", "iframe"]):
+            tag.decompose()
 
+        # 3. Extract content fragments
         articles = clean_soup.find_all(Config.Selectors.ARTICLE)
         if not articles:
-            return str(clean_soup) # Fallback
+            return str(clean_soup) # Fallback if no article tags found
 
-        # Convert article tags to strings for the template
+        # 4. Prepare data for template
         article_strings = [str(a) for a in articles]
-        
-        # Extract title for the template
         page_title = clean_soup.title.string if clean_soup.title else "X Article"
+        
+        # 5. Extract original styles for fidelity
+        injected_styles = self._extract_styles(clean_soup)
 
-        # Render template
+        # 6. Render final HTML
         try:
             template = env.get_template("article.html")
-            return template.render(title=page_title, articles=article_strings)
+            return template.render(
+                title=page_title, 
+                articles=article_strings, 
+                styles=injected_styles
+            )
         except Exception as e:
             logger.error(f"Template rendering failed: {e}")
             return str(clean_soup)
@@ -87,15 +99,12 @@ class XArticleExtractor:
 
             # 3. Topic
             topic = "Image_Only"
-            
-            # Strategy A: Try to extract from page <title> tag
             page_title = self.soup.title.string if self.soup.title else ""
             if page_title:
                 match = re.search(r'[:：]\s*["“](.+?)["”]\s*/\s*X$', page_title)
                 if match:
                     topic = match.group(1).strip()[:100]
             
-            # Strategy B: Fallback to DOM
             if topic == "Image_Only":
                 text_div = self.main_article.select_one(Config.Selectors.TWEET_TEXT)
                 if text_div:

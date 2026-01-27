@@ -40,6 +40,7 @@
 │   ├── extractor.py     # [业务层] HTML解析、元数据提取、样式清洗
 │   ├── downloader.py    # [服务层] 资源下载与文件保存 (集成在 main 中)
 │   ├── indexer.py       # [索引层] 扫描本地库并生成 index.html
+│   ├── exporter.py      # [导出层] PDF与EPUB格式转换逻辑
 │   ├── history.py       # [持久层] 下载记录管理
 │   ├── utils.py         # [工具层] 文件名清洗、Cookie加载
 │   └── logger.py        # [日志层] 全局日志配置
@@ -100,9 +101,9 @@ X (Twitter) 必须登录才能查看完整内容。
 ./run.sh input/urls.txt
 ```
 
-**同时导出 Markdown：**
+**导出为 PDF/EPUB：**
 ```bash
-./run.sh input/urls.txt --markdown
+./run.sh input/urls.txt --pdf --epub
 ```
 
 ## ⚙️ 参数详解
@@ -110,7 +111,9 @@ X (Twitter) 必须登录才能查看完整内容。
 | 参数 | 说明 | 默认值 |
 | :--- | :--- | :--- |
 | `input` | 单个 URL 或包含 URL 的文件路径 | (必填) |
-| `--markdown` | 开启 Markdown 格式导出 (默认只存 HTML) | False (关闭) |
+| `--markdown` | 开启 Markdown 格式导出 | False |
+| `--pdf` | 导出为 PDF 格式 | False |
+| `--epub` | 导出为 EPUB 电子书格式 | False |
 | `--scroll N` | 自动向下滚动 N 次以加载懒加载图片 | 5 |
 | `--timeout N` | 页面加载超时时间 (秒) | 20 |
 | `--headless` | 显示浏览器窗口 (用于调试验证码或登录) | False (默认静默运行) |

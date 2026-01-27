@@ -25,12 +25,15 @@ from src.logger import logger
 from src.history import HistoryManager
 from src.indexer import IndexGenerator
 from src.config import Config
+from src.exporter import Exporter
 
 class XDownloader:
-    def __init__(self, output_root: str, save_markdown: bool = True):
+    def __init__(self, output_root: str, save_markdown: bool = True, pdf_export: bool = False, epub_export: bool = False):
         self.output_root = output_root
         self.save_markdown = save_markdown
-        self.history = HistoryManager() # Log directory defaults to logs/ 
+        self.pdf_export = pdf_export
+        self.epub_export = epub_export
+        self.history = HistoryManager()
 
     @staticmethod
     def _download_task(session, url: str, save_path: str) -> bool:
@@ -207,6 +210,16 @@ class XDownloader:
             with open(os.path.join(article_dir, "meta.json"), "w", encoding="utf-8") as f:
                 json.dump(meta, f, indent=2, ensure_ascii=False)
             
+            # 8. Export (Optional)
+            if self.pdf_export:
+                pdf_path = os.path.join(article_dir, f"{folder_name}.pdf")
+                html_path = os.path.join(article_dir, f"{folder_name}.html")
+                Exporter.to_pdf(page, html_path, pdf_path)
+                
+            if self.epub_export:
+                epub_path = os.path.join(article_dir, f"{folder_name}.epub")
+                Exporter.to_epub(meta['title'], meta['author'], str(final_soup), assets_dir, epub_path)
+
             self.history.add(url)
             logger.info(f"✅ Download completed: {folder_name}")
             return None
@@ -242,6 +255,8 @@ def main():
     parser.add_argument("--scroll", type=int, default=Config.DEFAULT_SCROLL_COUNT)
     parser.add_argument("--timeout", type=int, default=Config.DEFAULT_TIMEOUT)
     parser.add_argument("--markdown", action="store_true", help="Also save as Markdown format (Default: HTML only)")
+    parser.add_argument("--pdf", action="store_true", help="Export as PDF (Default: False)")
+    parser.add_argument("--epub", action="store_true", help="Export as EPUB (Default: False)")
     parser.add_argument("--force", action="store_true", help="Force redownload even if in history")
     
     # Override default based on Config if needed, but argparse defaults handle it
@@ -265,7 +280,7 @@ def main():
         return
 
     # Initialize Engine
-    downloader = XDownloader(args.output, args.markdown)
+    downloader = XDownloader(args.output, args.markdown, args.pdf, args.epub)
     failures = []
 
     with sync_playwright() as p:

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-01-27
+### Added
+- **PDF Export**: Generate A4 PDF documents from downloaded articles using Playwright's printing engine (`--pdf` flag).
+- **EPUB Export**: Create offline-ready EPUB e-books with embedded images (`--epub` flag), perfect for e-readers.
+- **High-Fidelity Styles**: Improved the Jinja2 template engine to automatically inject original Twitter CSS styles into local HTML copies, ensuring 1:1 visual fidelity.
+
 ## [1.6.0] - 2026-01-27
 ### Added
 - **Configuration Management**: Introduced `.env` support via `src/config.py`. Centralized all settings (Timeouts, CSS Selectors, User-Agent) to allow easy updates without code changes.
