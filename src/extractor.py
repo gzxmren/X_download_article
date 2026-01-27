@@ -1,17 +1,18 @@
+import os
 from bs4 import BeautifulSoup
 import re
 from typing import Optional, Tuple, List
 from datetime import datetime
+from jinja2 import Environment, FileSystemLoader
 from .utils import sanitize_filename, get_filename_from_url
 from .logger import logger
+from .config import Config
 
-class XSelector:
-    """Centralized configuration for CSS selectors."""
-    ARTICLE = "article"
-    TIME = "time"
-    USER_NAME_DIV = "div[data-testid='User-Name']"
-    TWEET_TEXT = "div[data-testid='tweetText']"
-    IMAGES = "img"
+# Initialize Jinja2 Env
+# Assuming templates are in src/templates. We need absolute path relative to this file.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+templates_dir = os.path.join(current_dir, "templates")
+env = Environment(loader=FileSystemLoader(templates_dir))
 
 class XArticleExtractor:
     """
@@ -20,53 +21,43 @@ class XArticleExtractor:
     def __init__(self, html_content: str, url: str):
         self.soup = BeautifulSoup(html_content, "html.parser")
         self.url = url
-        self.main_article = self.soup.find(XSelector.ARTICLE)
+        self.main_article = self.soup.find(Config.Selectors.ARTICLE)
 
     def is_valid(self) -> bool:
         return self.main_article is not None
 
     def get_articles(self) -> List[BeautifulSoup]:
         """Returns all article tags (main tweet + replies)."""
-        return self.soup.find_all(XSelector.ARTICLE)
+        return self.soup.find_all(Config.Selectors.ARTICLE)
 
     def get_clean_html(self) -> str:
         """
-        Returns a high-fidelity HTML string by keeping original styles
-        but stripping UI noise (sidebar, nav, etc).
+        Returns a high-fidelity HTML string using Jinja2 templates.
         """
-        # Create a copy to avoid modifying the original soup used for other extractions
+        # Create a copy to extract pure content
         clean_soup = BeautifulSoup(str(self.soup), "html.parser")
         
         # Remove scripts to prevent tracking/errors
         for script in clean_soup(["script", "noscript", "iframe"]):
             script.decompose()
 
-        # Find the main container (react-root)
-        body = clean_soup.find("body")
-        if body:
-            # We want to clear the body but keep the articles
-            # Strategy: Extract articles, clear body, append articles back wrapped in a container
-            articles = clean_soup.find_all(XSelector.ARTICLE)
-            if not articles:
-                return str(clean_soup) # Fallback
+        articles = clean_soup.find_all(Config.Selectors.ARTICLE)
+        if not articles:
+            return str(clean_soup) # Fallback
 
-            # Clear body content
-            body.clear()
-            
-            # Create a centered wrapper imitating Twitter's layout width
-            wrapper = clean_soup.new_tag("div")
-            wrapper['style'] = "max-width: 600px; margin: 0 auto; padding-top: 20px; font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, sans-serif;"
-            body.append(wrapper)
+        # Convert article tags to strings for the template
+        article_strings = [str(a) for a in articles]
+        
+        # Extract title for the template
+        page_title = clean_soup.title.string if clean_soup.title else "X Article"
 
-            # Re-attach articles
-            for article in articles:
-                # Wrap each article in a card-like div for better visibility
-                card = clean_soup.new_tag("div")
-                card['style'] = "border: 1px solid rgb(239, 243, 244); border-radius: 16px; margin-bottom: 16px; padding: 16px;"
-                card.append(article)
-                wrapper.append(card)
-
-        return str(clean_soup)
+        # Render template
+        try:
+            template = env.get_template("article.html")
+            return template.render(title=page_title, articles=article_strings)
+        except Exception as e:
+            logger.error(f"Template rendering failed: {e}")
+            return str(clean_soup)
 
     def extract_metadata(self) -> str:
         """
@@ -79,13 +70,13 @@ class XArticleExtractor:
         try:
             # 1. Date
             date_str = "NoDate"
-            time_tag = self.main_article.find(XSelector.TIME)
+            time_tag = self.main_article.find(Config.Selectors.TIME)
             if time_tag and time_tag.has_attr('datetime'):
                 date_str = time_tag['datetime'].split('T')[0]
 
             # 2. Author
             author = "Unknown"
-            user_div = self.main_article.select_one(XSelector.USER_NAME_DIV)
+            user_div = self.main_article.select_one(Config.Selectors.USER_NAME)
             if user_div:
                 text = user_div.get_text(separator=" ", strip=True)
                 match = re.search(r'(@\w+)', text)
@@ -106,7 +97,7 @@ class XArticleExtractor:
             
             # Strategy B: Fallback to DOM
             if topic == "Image_Only":
-                text_div = self.main_article.select_one(XSelector.TWEET_TEXT)
+                text_div = self.main_article.select_one(Config.Selectors.TWEET_TEXT)
                 if text_div:
                     full_text = text_div.get_text(separator=" ", strip=True)
                     if full_text:
@@ -128,12 +119,12 @@ class XArticleExtractor:
         if self.main_article:
             try:
                 # Date
-                time_tag = self.main_article.find(XSelector.TIME)
+                time_tag = self.main_article.find(Config.Selectors.TIME)
                 if time_tag and time_tag.has_attr('datetime'):
                     date_str = time_tag['datetime'].split('T')[0]
                 
                 # Author
-                user_div = self.main_article.select_one(XSelector.USER_NAME_DIV)
+                user_div = self.main_article.select_one(Config.Selectors.USER_NAME)
                 if user_div:
                     text = user_div.get_text(separator=" ", strip=True)
                     match = re.search(r'(@\w+)', text)
@@ -147,7 +138,7 @@ class XArticleExtractor:
                         topic = match.group(1).strip()
                 
                 if topic == "Untitled":
-                     text_div = self.main_article.select_one(XSelector.TWEET_TEXT)
+                     text_div = self.main_article.select_one(Config.Selectors.TWEET_TEXT)
                      if text_div:
                          topic = text_div.get_text(separator=" ", strip=True)[:100]
             except Exception as e:

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-01-27
+### Added
+- **Configuration Management**: Introduced `.env` support via `src/config.py`. Centralized all settings (Timeouts, CSS Selectors, User-Agent) to allow easy updates without code changes.
+- **Templating Engine**: Integrated `Jinja2` to separate HTML presentation from Python logic. Added `src/templates/` with `article.html` and `index.html`.
+- **Pagination**: The Global Index (`index.html`) now supports pagination. Default is 20 articles per page, configurable via `ITEMS_PER_PAGE` in `.env`.
+
 ## [1.5.0] - 2026-01-27
 ### Added
 - **Structured Logging**: Introduced `logs/latest_run.jsonl`, a machine-readable JSON log file for automated analysis and dashboarding.

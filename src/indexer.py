@@ -1,15 +1,21 @@
 import os
 import json
 from datetime import datetime
+from jinja2 import Environment, FileSystemLoader
+from .config import Config
+
+# Initialize Jinja2 Env
+current_dir = os.path.dirname(os.path.abspath(__file__))
+templates_dir = os.path.join(current_dir, "templates")
+env = Environment(loader=FileSystemLoader(templates_dir))
 
 class IndexGenerator:
     def __init__(self, output_root: str, ordered_urls: list = None):
         self.output_root = output_root
-        self.index_file = os.path.join(output_root, "index.html")
         self.ordered_urls = ordered_urls or []
 
     def generate(self):
-        """Scans all subdirectories for meta.json and rebuilds index.html"""
+        """Scans all subdirectories for meta.json and rebuilds index.html with pagination."""
         articles = []
         
         # Scan directories
@@ -41,72 +47,54 @@ class IndexGenerator:
             # Fallback to date sort if no order provided
             articles.sort(key=lambda x: x.get('date', '0000-00-00'), reverse=True)
         
-        # Generate HTML
-        self._write_html(articles)
-        print(f"📊 Index updated with {len(articles)} articles.")
-
-    def _write_html(self, articles):
-        rows = ""
-        for art in articles:
-            # Find first image as thumbnail if available (not implemented in meta yet, using placeholder)
-            # Future improvement: save thumbnail path in meta.json
-            title = art.get('title', 'Untitled')
-            author = art.get('author', 'Unknown')
-            date = art.get('date', 'Unknown')
-            url = art.get('url', '#')
-            link = art.get('local_path', '#')
+        # Pagination Logic
+        total_articles = len(articles)
+        per_page = Config.ITEMS_PER_PAGE
+        
+        # Calculate chunks
+        if total_articles > 0:
+            chunks = [articles[i:i + per_page] for i in range(0, total_articles, per_page)]
+        else:
+            chunks = [[]] # Handle empty case
             
-            rows += f"""
-            <tr class="hover:bg-gray-50 transition">
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{date}</td>
-                <td class="px-6 py-4">
-                    <div class="text-sm font-medium text-gray-900"><a href="{link}" class="hover:text-blue-600">{title}</a></div>
-                    <div class="text-sm text-gray-500"><a href="{url}" target="_blank" class="text-xs text-blue-400 hover:underline">Original Source</a></div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{author}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <a href="{link}" class="text-indigo-600 hover:text-indigo-900">View Local</a>
-                </td>
-            </tr>
-            """
+        total_pages = len(chunks)
+        
+        for i, chunk in enumerate(chunks):
+            page_num = i + 1
+            self._write_single_page(chunk, page_num, total_pages, total_articles)
+            
+        print(f"📊 Index updated: {total_articles} articles across {total_pages} pages.")
 
-        html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X Articles Library</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 min-h-screen p-8">
-    <div class="max-w-6xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200 bg-white flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">📚 X Articles Library</h1>
-            <span class="text-sm text-gray-500">Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
-        </div>
+    def _write_single_page(self, articles_chunk, page_num, total_pages, total_count):
+        # Determine filename
+        if page_num == 1:
+            filename = "index.html"
+        else:
+            filename = f"index_{page_num}.html"
+            
+        file_path = os.path.join(self.output_root, filename)
         
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Topic</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Author</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {rows}
-                </tbody>
-            </table>
-        </div>
-        
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-            Total Articles: {len(articles)}
-        </div>
-    </div>
-</body>
-</html>"""
-        
-        with open(self.index_file, "w", encoding="utf-8") as f:
-            f.write(html)
+        # Determine Links
+        prev_page = None
+        if page_num > 1:
+            prev_page = "index.html" if page_num == 2 else f"index_{page_num - 1}.html"
+            
+        next_page = None
+        if page_num < total_pages:
+            next_page = f"index_{page_num + 1}.html"
+
+        try:
+            template = env.get_template("index.html")
+            html_content = template.render(
+                articles=articles_chunk,
+                total_count=total_count,
+                generated_at=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                current_page=page_num,
+                total_pages=total_pages,
+                prev_page=prev_page,
+                next_page=next_page
+            )
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+        except Exception as e:
+            print(f"Index generation failed for page {page_num}: {e}")

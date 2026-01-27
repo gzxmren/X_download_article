@@ -34,6 +34,8 @@
 ```text
 .
 ├── src/
+│   ├── templates/       # [视图层] Jinja2 HTML 模板
+│   ├── config.py        # [配置层] 环境变量加载
 │   ├── main.py          # [控制层] CLI入口与流程调度
 │   ├── extractor.py     # [业务层] HTML解析、元数据提取、样式清洗
 │   ├── downloader.py    # [服务层] 资源下载与文件保存 (集成在 main 中)
@@ -41,18 +43,32 @@
 │   ├── history.py       # [持久层] 下载记录管理
 │   ├── utils.py         # [工具层] 文件名清洗、Cookie加载
 │   └── logger.py        # [日志层] 全局日志配置
-├── docs/
-│   ├── ROADMAP.md       # 路线图与改进建议
-│   └── TECHNICAL_DESIGN.md # 技术实现方案
 ├── input/
 │   ├── cookies.txt      # (自备) 导出的 Cookie 文件
 │   └── urls.txt         # (自备) 批量下载列表
+├── .env                 # (推荐) 全局配置文件
 ├── output/              # 结果目录 (按 "作者_主题_日期" 分类)
-│   ├── index.html       # 全局文章索引页
+│   ├── index.html       # 全局文章索引页 (支持分页)
 │   └── ...              # 各文章文件夹
 ├── logs/                # 运行日志
 ├── run.sh               # 一键启动脚本
 └── requirements.txt     # 依赖列表
+```
+
+## ⚙️ 配置说明 (.env)
+
+项目支持通过 `.env` 文件进行无代码配置（推荐）：
+
+```ini
+# --- 核心行为 ---
+DEFAULT_TIMEOUT=20       # 页面加载超时 (秒)
+DEFAULT_SCROLL_COUNT=5   # 向下滚动次数
+MAX_WORKERS=8            # 并行下载线程数
+ITEMS_PER_PAGE=20        # 索引页每页显示文章数
+
+# --- 选择器配置 (适应 X 平台变动) ---
+SELECTOR_ARTICLE="article"
+# ...
 ```
 
 ## 🚀 快速开始

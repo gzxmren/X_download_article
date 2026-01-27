@@ -24,12 +24,13 @@ from src.extractor import XArticleExtractor
 from src.logger import logger
 from src.history import HistoryManager
 from src.indexer import IndexGenerator
+from src.config import Config
 
 class XDownloader:
     def __init__(self, output_root: str, save_markdown: bool = True):
         self.output_root = output_root
         self.save_markdown = save_markdown
-        self.history = HistoryManager() # Log directory defaults to logs/
+        self.history = HistoryManager() # Log directory defaults to logs/ 
 
     @staticmethod
     def _download_task(session, url: str, save_path: str) -> bool:
@@ -60,7 +61,7 @@ class XDownloader:
         
         logger.info(f"Waiting for content (timeout: {timeout}s)...")
         # Ensure we catch the timeout error to trigger retry
-        page.wait_for_selector("article", timeout=timeout * 1000)
+        page.wait_for_selector(Config.Selectors.ARTICLE, timeout=timeout * 1000)
         time.sleep(3) # Wait for hydration
 
     def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False):
@@ -132,16 +133,15 @@ class XDownloader:
             for cookie in pw_cookies:
                 session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
             
-            # Identify a User-Agent to match Playwright
-            ua = page.evaluate("navigator.userAgent")
-            session.headers.update({"User-Agent": ua})
+            # Use User-Agent from Config
+            session.headers.update({"User-Agent": Config.USER_AGENT})
 
             # Collect tasks
             download_tasks = []
-            articles = final_soup.find_all("article")
+            articles = final_soup.find_all(Config.Selectors.ARTICLE)
             
             for article in articles:
-                imgs = article.find_all("img")
+                imgs = article.find_all(Config.Selectors.IMAGES)
                 for img in imgs:
                     src = img.get("src")
                     if src and "profile_images" not in src:
@@ -158,7 +158,7 @@ class XDownloader:
 
             # Execute tasks in ThreadPool
             if download_tasks:
-                with ThreadPoolExecutor(max_workers=8) as executor:
+                with ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
                     # Submit all tasks
                     future_to_img = {
                         executor.submit(self._download_task, session, src, path): (img, src, path)
@@ -237,13 +237,15 @@ def main():
     parser.add_argument("input", help="URL or file with URLs")
     parser.add_argument("--cookies", "-c", default="input/cookies.txt")
     parser.add_argument("--output", "-o", default="output")
-    parser.add_argument("--headless", action="store_false", dest="headless", help="Show browser window")
-    parser.add_argument("--scroll", type=int, default=5)
-    parser.add_argument("--timeout", type=int, default=20)
+    # Use Config defaults
+    parser.add_argument("--headless", action="store_false", dest="headless", help=f"Show browser window (Default: {Config.HEADLESS})")
+    parser.add_argument("--scroll", type=int, default=Config.DEFAULT_SCROLL_COUNT)
+    parser.add_argument("--timeout", type=int, default=Config.DEFAULT_TIMEOUT)
     parser.add_argument("--markdown", action="store_true", help="Also save as Markdown format (Default: HTML only)")
     parser.add_argument("--force", action="store_true", help="Force redownload even if in history")
     
-    parser.set_defaults(headless=True, markdown=False)
+    # Override default based on Config if needed, but argparse defaults handle it
+    parser.set_defaults(headless=Config.HEADLESS, markdown=False)
     args = parser.parse_args()
 
     # Prepare Inputs
@@ -271,7 +273,7 @@ def main():
         browser = p.chromium.launch(headless=args.headless)
         context = browser.new_context(
             viewport={"width": 1280, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent=Config.USER_AGENT # Use Config User-Agent
         )
 
         # Load Cookies
