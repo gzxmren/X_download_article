@@ -17,7 +17,7 @@
     *   **断点续传**：内置历史记录数据库，自动跳过已下载的链接（支持 `--force` 强制覆盖）。
     *   **批量处理**：支持通过 `input/urls.txt` 进行无人值守的批量下载。
     *   **双重格式**：默认生成高保真 HTML，可选生成 Markdown 格式。
-    *   **Cookie 注入**：支持 JSON/Netscape 格式 Cookie，安全复用浏览器登录状态。
+        *   **Cookie 注入**：支持 JSON/Netscape 格式 Cookie，安全复用浏览器登录状态。
 
 ### 实用工具
 *   **去重工具**：如果 `input/urls.txt` 中积累了大量重复链接，可以运行以下命令进行清理（保留原顺序和注释）：
@@ -81,6 +81,8 @@ SELECTOR_ARTICLE="article"
 chmod +x run.sh
 ./run.sh --help
 ```
+
+### 3. 准备 Cookie
 
 ### 2. 准备 Cookie
 X (Twitter) 必须登录才能查看完整内容。
