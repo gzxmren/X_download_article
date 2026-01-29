@@ -3,7 +3,6 @@ beautifulsoup4
 markdownify
 requests
 tenacity
-requests
 python-dotenv
 Jinja2
 EbookLib

@@ -22,10 +22,10 @@ if project_root not in sys.path:
 from src.utils import load_cookies
 from src.extractor import XArticleExtractor
 from src.logger import logger
-from src.history import HistoryManager
 from src.indexer import IndexGenerator
 from src.config import Config
 from src.exporter import Exporter
+from src.record_manager import RecordManager
 
 class XDownloader:
     def __init__(self, output_root: str, save_markdown: bool = True, pdf_export: bool = False, epub_export: bool = False):
@@ -33,25 +33,22 @@ class XDownloader:
         self.save_markdown = save_markdown
         self.pdf_export = pdf_export
         self.epub_export = epub_export
-        self.history = HistoryManager()
+        self.record_manager = RecordManager(os.path.join(output_root, "records.csv"))
 
     @staticmethod
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     def _download_task(session, url: str, save_path: str) -> bool:
         """
-        Executes a single image download task using requests.
-        Returns True if successful, False otherwise.
+        Executes a single image download task using requests with retries.
+        Returns True if successful, raises exception if all retries fail.
         """
-        try:
-            # Use stream=True to avoid loading large files into memory at once
-            with session.get(url, stream=True, timeout=10) as r:
-                r.raise_for_status()
-                with open(save_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            return True
-        except Exception as e:
-            # logger.warning(f"Download failed for {url}: {e}") # Too noisy for threads
-            return False
+        # Use stream=True to avoid loading large files into memory at once
+        with session.get(url, stream=True, timeout=15) as r:
+            r.raise_for_status()
+            with open(save_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        return True
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def _safe_navigate(self, page: Page, url: str, timeout: int):
@@ -72,7 +69,7 @@ class XDownloader:
         Returns None if successful/skipped.
         Returns error_dict if failed.
         """
-        if not force and self.history.exists(url):
+        if not force and self.record_manager.is_downloaded(url):
             logger.info(f"⏭️  Skipping already downloaded: {url}")
             return None
 
@@ -83,6 +80,12 @@ class XDownloader:
                 self._safe_navigate(page, url, timeout)
             except Exception as e:
                 logger.error(f"❌ Failed to load {url} after retries: {e}")
+                self.record_manager.save_record({
+                    'url': url,
+                    'status': 'failed',
+                    'failure_reason': f"Navigation failed: {str(e)}",
+                    'source': 'cli_runtime'
+                })
                 return {
                     "url": url,
                     "error_msg": f"Navigation failed: {str(e)}",
@@ -100,6 +103,12 @@ class XDownloader:
             extractor = XArticleExtractor(page.content(), url)
             if not extractor.is_valid():
                 logger.error("No article found in page content.")
+                self.record_manager.save_record({
+                    'url': url,
+                    'status': 'failed',
+                    'failure_reason': "No article content found (Extractor invalid)",
+                    'source': 'cli_runtime'
+                })
                 return {
                     "url": url,
                     "error_msg": "No article content found (Extractor invalid)",
@@ -136,8 +145,13 @@ class XDownloader:
             for cookie in pw_cookies:
                 session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
             
-            # Use User-Agent from Config
-            session.headers.update({"User-Agent": Config.USER_AGENT})
+            # Use User-Agent and other headers to mimic a browser
+            session.headers.update({
+                "User-Agent": Config.USER_AGENT,
+                "Referer": "https://x.com/",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            })
 
             # Collect tasks
             download_tasks = []
@@ -172,17 +186,15 @@ class XDownloader:
                     for future in future_to_img:
                         img, src, path = future_to_img[future]
                         try:
+                            # result() will raise if _download_task failed after retries
                             if future.result():
                                 # Success: Update src to local path
                                 img['src'] = os.path.relpath(path, article_dir)
                                 if img.has_attr('srcset'): del img['srcset']
-                            else:
-                                # Failure: Keep remote src, add marker
-                                logger.warning(f"Failed to download image: {src}")
-                                img['data-download-status'] = "failed"
                         except Exception as exc:
-                            logger.error(f"Image task exception: {exc}")
-                            img['data-download-status'] = "error"
+                            # Log the final failure after retries
+                            logger.warning(f"Failed to download image after retries: {src}. Error: {exc}")
+                            img['data-download-status'] = "failed"
             
             logger.info("Image processing complete.")
             # --- END PARALLEL IMAGE DOWNLOAD ---
@@ -219,13 +231,23 @@ class XDownloader:
             if self.epub_export:
                 epub_path = os.path.join(article_dir, f"{folder_name}.epub")
                 Exporter.to_epub(meta['title'], meta['author'], str(final_soup), assets_dir, epub_path)
-
-            self.history.add(url)
+            
+            # Record Success
+            meta['status'] = 'success'
+            meta['folder_name'] = folder_name
+            self.record_manager.save_record(meta)
+            
             logger.info(f"✅ Download completed: {folder_name}")
             return None
 
         except Exception as e:
             logger.critical(f"Critical error processing {url}: {e}", exc_info=True)
+            self.record_manager.save_record({
+                'url': url,
+                'status': 'failed',
+                'failure_reason': f"Critical Exception: {str(e)}",
+                'source': 'cli_runtime'
+            })
             return {
                 "url": url,
                 "error_msg": f"Critical Exception: {str(e)}",

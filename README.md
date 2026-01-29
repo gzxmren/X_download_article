@@ -29,6 +29,22 @@
     python3 src/regenerate_index.py
     ```
 
+### 🧰 资产管理助手 (Helper CLI)
+项目内置了一个强大的管理工具 `src/helper.py`，用于管理你的 URL 资产数据库 (`output/records.csv`)。
+
+*   **同步数据库 (Sync)**：如果你手动删除了文件，或者刚从别的电脑迁移过来，运行此命令扫描现有的下载目录，重建数据库：
+    ```bash
+    python3 src/helper.py sync
+    ```
+*   **查看统计 (Stats)**：查看当前的下载总数、成功率等：
+    ```bash
+    python3 src/helper.py stats
+    ```
+*   **导出 URL (Export)**：将数据库中的所有 URL 导出到一个文本文件（方便迁移到新设备重新下载）：
+    ```bash
+    python3 src/helper.py export all_urls.txt
+    ```
+
 ## 📂 项目结构 (模块化架构)
 
 ```text
@@ -37,11 +53,11 @@
 │   ├── templates/       # [视图层] Jinja2 HTML 模板
 │   ├── config.py        # [配置层] 环境变量加载
 │   ├── main.py          # [控制层] CLI入口与流程调度
+│   ├── helper.py        # [工具层] 数据库管理 CLI
+│   ├── record_manager.py# [持久层] CSV 数据库读写与状态管理
 │   ├── extractor.py     # [业务层] HTML解析、元数据提取、样式清洗
-│   ├── downloader.py    # [服务层] 资源下载与文件保存 (集成在 main 中)
 │   ├── indexer.py       # [索引层] 扫描本地库并生成 index.html
 │   ├── exporter.py      # [导出层] PDF与EPUB格式转换逻辑
-│   ├── history.py       # [持久层] 下载记录管理
 │   ├── utils.py         # [工具层] 文件名清洗、Cookie加载
 │   └── logger.py        # [日志层] 全局日志配置
 ├── input/
@@ -49,6 +65,7 @@
 │   └── urls.txt         # (自备) 批量下载列表
 ├── .env                 # (推荐) 全局配置文件
 ├── output/              # 结果目录 (按 "作者_主题_日期" 分类)
+│   ├── records.csv      # [核心] 资产数据库 (URL 索引与状态)
 │   ├── index.html       # 全局文章索引页 (支持分页)
 │   └── ...              # 各文章文件夹
 ├── logs/                # 运行日志
@@ -126,6 +143,8 @@ X (Twitter) 必须登录才能查看完整内容。
 
 *   **Q: 为什么生成的文件夹是 URL 乱码？**
     *   A: 这通常意味着元数据提取失败（可能是因为页面未完全加载）。尝试增加 `--timeout 30` 或 `--scroll 10`。
+*   **Q: 遇到 "Failed to download image" 报错怎么办？**
+    *   A: 通常是因为网络波动或反爬限制。v1.7.1 版本已内置自动重试机制和反爬虫伪装头。如果仍然失败，请检查网络连接是否通畅，或稍后重试。
 *   **Q: 怎么看下载进度？**
     *   A: 查看终端输出，或检查 `logs/` 目录下的最新日志文件。
 *   **Q: 下载中断了怎么办？**
