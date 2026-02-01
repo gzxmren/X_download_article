@@ -103,14 +103,14 @@ class XArticleExtractor:
             if page_title:
                 match = re.search(r'[:：]\s*["“](.+?)["”]\s*/\s*X$', page_title)
                 if match:
-                    topic = match.group(1).strip()[:100]
+                    topic = match.group(1).strip()[:Config.MAX_TOPIC_LENGTH]
             
             if topic == "Image_Only":
                 text_div = self.main_article.select_one(Config.Selectors.TWEET_TEXT)
                 if text_div:
                     full_text = text_div.get_text(separator=" ", strip=True)
                     if full_text:
-                        topic = full_text[:100]
+                        topic = full_text[:Config.MAX_TOPIC_LENGTH]
 
             raw_name = f"{author}_{topic}_{date_str}"
             return sanitize_filename(raw_name)

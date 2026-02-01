@@ -140,6 +140,7 @@ class XDownloader:
             
             # Prepare Requests Session (Copy Cookies from Playwright)
             session = requests.Session()
+            session.trust_env = False # Ignore env proxies
             # Playwright cookies are list of dicts, requests needs a CookieJar or dict
             pw_cookies = page.context.cookies()
             for cookie in pw_cookies:

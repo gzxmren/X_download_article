@@ -1,5 +1,6 @@
 import os
 import json
+from urllib.parse import quote
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 from .config import Config
@@ -28,24 +29,16 @@ class IndexGenerator:
                             with open(meta_path, 'r', encoding='utf-8') as f:
                                 meta = json.load(f)
                                 # Ensure relative path is correct for linking
-                                meta['local_path'] = f"{entry.name}/{meta.get('filename_base', 'article')}.html"
+                                folder_encoded = quote(entry.name)
+                                filename_encoded = quote(meta.get('filename_base', 'article'))
+                                meta['local_path'] = f"{folder_encoded}/{filename_encoded}.html"
                                 articles.append(meta)
                         except Exception as e:
                             print(f"Error reading {meta_path}: {e}")
 
         # Sort Logic
-        if self.ordered_urls:
-            # Create a map of url -> index for O(1) lookup
-            url_order = {url: i for i, url in enumerate(self.ordered_urls)}
-            
-            # Helper to get index, default to infinity if not found (put at end)
-            def get_order(article):
-                return url_order.get(article.get('url', '').strip(), float('inf'))
-            
-            articles.sort(key=get_order)
-        else:
-            # Fallback to date sort if no order provided
-            articles.sort(key=lambda x: x.get('date', '0000-00-00'), reverse=True)
+        # Sort by download_time descending (newest processed first)
+        articles.sort(key=lambda x: x.get('download_time', '0000-00-00'), reverse=True)
         
         # Pagination Logic
         total_articles = len(articles)

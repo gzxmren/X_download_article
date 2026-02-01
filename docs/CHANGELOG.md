@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-02-01
+### Fixed
+- **File System Limits**: Resolved "File name too long" crashes on Linux/macOS when processing tweets with extremely long text content.
+    - Introduced `MAX_FILENAME_LENGTH` (default 64 chars) and `MAX_TOPIC_LENGTH` (default 40 chars) in `src/config.py`.
+    - Truncated generated folder names to safe limits while preserving Author and Date for identification.
+- **Broken Links**: Fixed `index.html` navigation errors where folders containing special characters (like `#` or Chinese punctuation) were not accessible in browsers.
+    - Implemented proper URL encoding for all local file paths in the indexer.
+
+### Changed
+- **Sorting Logic**: The Global Index (`index.html`) now sorts articles by **Download Time** (Newest First) by default. This replaces the previous sorting based on `urls.txt` order, making it easier to see recently added content.
+
+### Added
+- **Duplicate Cleaner**: Added `src/find_duplicateFolder.py`, a utility to detect and clean up duplicate article folders (e.g., created due to changing naming rules).
+    - Identifies duplicates based on the unique URL in `meta.json`.
+    - `--delete` flag: Automatically keeps the latest version and deletes older duplicates to save space.
+
 ## [1.8.0] - 2026-01-29
 ### Added
 - **Helper CLI**: Introduced `src/helper.py`, a dedicated tool for managing the download database.

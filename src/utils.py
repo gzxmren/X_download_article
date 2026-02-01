@@ -3,6 +3,7 @@ import re
 import hashlib
 import json
 from urllib.parse import urlparse
+from src.config import Config
 
 def sanitize_filename(text: str) -> str:
     """
@@ -12,7 +13,7 @@ def sanitize_filename(text: str) -> str:
     text = re.sub(r'[\\/*?:\"<>|]', "", text)
     text = text.replace("\n", " ").replace("\r", "")
     text = re.sub(r'\s+', "_", text).strip("_")
-    return text[:100]
+    return text[:Config.MAX_FILENAME_LENGTH]
 
 def get_filename_from_url(url: str) -> str:
     """Fallback filename generation from URL."""
