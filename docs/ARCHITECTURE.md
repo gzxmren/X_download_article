@@ -2,77 +2,87 @@
 
 ## 1. System Overview
 
-The **X Article Downloader** is designed as a modular, resilient content archiving system. Unlike simple scrapers, it acts as a **Browser Automation Agent** (using Playwright) to interact with X's complex Single Page Application (SPA) architecture, ensuring high-fidelity capture of dynamic content.
+The **Universal Article Downloader** (formerly X Article Downloader) is a modular, plugin-based content archiving system. It acts as a **Browser Automation Agent** (using Playwright) to capture high-fidelity dynamic content from various platforms.
 
 ### Core Philosophy
 *   **Fidelity**: Prefer rendering original HTML/CSS over reconstructing content manually.
 *   **Resilience**: Handle network flakes, timeouts, and anti-bot checks gracefully.
-*   **Offline-First**: All assets (images, styles) must be localized. Dependencies on remote servers are removed after download.
+*   **Extensibility**: Support new platforms via independent plugins without modifying the core engine.
+*   **Configuration-Driven**: CSS selectors and behaviors are defined in external YAML files.
 
 ## 2. Layered Architecture
 
-The codebase handles complexity through separation of concerns:
+The codebase follows a clear separation of concerns using the **Inversion of Control (IoC)** pattern via a Plugin System.
 
 ```mermaid
 graph TD
-    User[User Input] --> CLI[main.py / CLI Parser]
-    CLI --> Engine[XDownloader Engine]
+    User[User Input] --> CLI[main.py]
+    Config[config.yaml] --> Loader[ConfigLoader]
     
-    subgraph Core Services
-        Engine -->|1. Navigate & Scroll| Browser[Playwright (Headless)]
-        Engine -->|2. Check History| History[HistoryManager]
-        Engine -->|3. Extract Content| Extractor[XArticleExtractor]
-        Engine -->|4. Save Files| IO[File System]
+    subgraph Core Engine
+        CLI --> PluginMgr[PluginManager]
+        PluginMgr -->|Selects| Plugin[IPlugin (e.g., XComPlugin)]
+        CLI --> Browser[Playwright]
+        CLI --> IO[RecordManager (Atomic)]
     end
     
-    subgraph Support Modules
-        Extractor -->|Clean Filenames| Utils[utils.py]
-        Extractor -->|CSS Selectors| Config[XSelector]
-        Engine -->|Logging| Logger[logger.py]
+    subgraph Plugin Layer
+        Plugin -->|Provides| Extractor[IExtractor]
+        Extractor -->|Reads| Loader
+        Extractor -->|Parses| HTML[BeautifulSoup]
     end
     
-    IO -->|Generate| Index[IndexGenerator]
-    Index --> Output[index.html]
+    subgraph Output
+        CLI -->|Assets| FS[File System]
+        CLI -->|Index| Indexer[IndexGenerator]
+        Indexer --> HTML_Out[index.html]
+    end
 ```
 
 ### 3. Core Modules
 
 *   **`main.py` (Controller)**:
-    *   Entry point for CLI commands.
-    *   Orchestrates the browser (Playwright), Extractor, and Exporter.
-    *   Manages the download loop and error handling.
+    *   Orchestrates the download lifecycle: Navigate -> Wait -> Extract -> Download -> Save.
+    *   **Agnostic**: Does not contain platform-specific logic (e.g., specific selectors).
+    *   Uses `PluginManager` to delegate parsing tasks.
+*   **`plugin_manager.py` (Registry)**:
+    *   Manages available plugins.
+    *   Matches URLs to plugins via `can_handle(url)`.
+*   **`src/plugins/` (Extensions)**:
+    *   **`x_com.py`**: Implementation for X (Twitter). Encapsulates selectors, metadata extraction, and image finding logic.
+    *   **Future**: `bluesky.py`, `medium.py`, etc.
+*   **`config.py` (Configuration)**:
+    *   Singleton `ConfigLoader` that reads `config.yaml`.
+    *   Allows runtime updates to CSS selectors without code changes.
 *   **`record_manager.py` (Persistence)**:
-    *   Manages `output/records.csv`, the central database of all downloaded URLs.
-    *   Handles "Upsert" logic (updating records without overwriting success with failure).
-    *   Provides "Resume/Skip" functionality by checking if a URL exists in the database.
-*   **`helper.py` (Tooling)**:
-    *   A standalone CLI for managing the database.
-    *   Features: `sync` (rebuild DB from files), `stats` (view counts), `export` (dump URLs).
-*   **`extractor.py` (Business Logic)**:
-    *   Parses HTML using `BeautifulSoup`.
-    *   Sanitizes content (removes scripts, ads).
-    *   Extracts metadata (Author, Date, Topic).
-    *   Injects original styles via `Jinja2` templates.
-*   **`indexer.py` (Presentation)**:
-    *   Scans `output/` for `meta.json` files.
-    *   Generates a paginated `index.html` dashboard.
-*   **`exporter.py` (Export)**:
-    *   Handles conversion to PDF (printing) and EPUB (ebook structure).
+    *   **Atomic Writes**: Uses `os.replace` to prevent data corruption.
+    *   **Memory Cache**: O(1) lookups for skip logic.
 
-## Data Flow
+## 4. Key Workflows
 
-1.  **Input**: User provides URL(s) via CLI or `urls.txt`.
-2.  **Check**: `RecordManager` checks if URL is already in `records.csv` (status='success').
-    *   If yes -> Skip (unless `--force`).
-3.  **Fetch**: Playwright loads the page, scrolls to load lazy content.
-4.  **Extract**: `XArticleExtractor` parses HTML, cleans it, and extracts metadata.
-5.  **Download**:
-    *   Images are downloaded in parallel (Thread Pool).
-    *   HTML is rewritten to point to local images.
-6.  **Save**:
-    *   HTML/Markdown saved to `output/Author_Topic_Date/`.
-    *   Metadata saved to `meta.json`.
-    *   **Record**: `RecordManager` updates `records.csv` with success status.
-7.  **Index**: `IndexGenerator` rebuilds `index.html`.
+### A. Configuration Injection (Scheme A)
+Plugins are **self-service**. They directly access the `ConfigLoader` to retrieve their specific settings (e.g., `selectors.x_com`). This keeps the core engine decoupled from plugin-specific configuration needs.
 
-## Directory Structure Design
+### B. Precise Content Anchoring
+To ensure fidelity in complex SPAs (Single Page Applications) like X.com, the system uses an **Anchoring Strategy**:
+1.  **ID Extraction**: The plugin extracts the unique Content ID (e.g., Tweet ID) from the source URL.
+2.  **ID Matching**: Instead of selecting the first available content block, it scans all candidates (e.g., all `<article>` tags) for a permalink matching that ID.
+3.  **Stability**: This ensures that even if ads, context threads, or recommended posts are loaded first, the intended article is correctly identified.
+
+### C. Image Extraction
+The responsibility of identifying *which* images to download has been moved from the core engine to the `IExtractor.get_content_images(soup)` interface. This allows plugins to handle complex DOM structures (e.g., background images, lazy-loaded sources) transparently.
+
+## 5. Directory Structure
+
+```text
+src/
+├── main.py              # Entry point
+├── interfaces.py        # Abstract Base Classes (Contracts)
+├── plugin_manager.py    # Plugin Registry
+├── config.py            # YAML Config Loader
+├── plugins/             # Platform implementations
+│   ├── __init__.py
+│   └── x_com.py
+├── record_manager.py    # DB Logic
+└── templates/           # Jinja2 Templates
+```

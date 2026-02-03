@@ -12,105 +12,129 @@ class RecordManager:
             'url', 'status', 'title', 'author', 'published_date', 
             'folder_name', 'timestamp', 'failure_reason', 'source'
         ]
+        self._records: Dict[str, dict] = {}
         self._ensure_csv_exists()
+        self._load_all_to_memory()
 
     def _ensure_csv_exists(self):
+        """Initializes the CSV file with headers if it doesn't exist."""
         if not os.path.exists(self.csv_path):
             os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
-            with open(self.csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writeheader()
+            try:
+                with open(self.csv_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+                    writer.writeheader()
+                logger.info(f"Initialized new records database at {self.csv_path}")
+            except Exception as e:
+                logger.error(f"Failed to initialize CSV: {e}")
 
-    def load_records(self) -> Dict[str, dict]:
-        """Loads all records into a dictionary keyed by URL."""
-        records = {}
+    def _load_all_to_memory(self):
+        """Loads all records into memory once to enable O(1) lookups."""
         if not os.path.exists(self.csv_path):
-            return records
+            return
 
         try:
             with open(self.csv_path, 'r', newline='', encoding='utf-8') as f:
+                # Check for empty file
+                f.seek(0, os.SEEK_END)
+                if f.tell() == 0:
+                    return
+                f.seek(0)
+
                 reader = csv.DictReader(f)
-                for row in reader:
-                    records[row['url']] = row
+                
+                # Strict Header Check
+                if reader.fieldnames != self.fieldnames:
+                     raise ValueError("CSV Headers do not match expected schema.")
+
+                # Filter out empty rows or rows with no URL
+                self._records = {row['url']: row for row in reader if row.get('url')}
+            
+            logger.info(f"Loaded {len(self._records)} records into memory cache.")
         except Exception as e:
-            logger.error(f"Failed to load records CSV: {e}")
-            # Backup corrupted file
-            if os.path.exists(self.csv_path):
-                backup_name = f"{self.csv_path}.bak.{int(datetime.now().timestamp())}"
-                shutil.copy(self.csv_path, backup_name)
-                logger.warning(f"Backed up corrupted CSV to {backup_name}")
-        
-        return records
+            logger.error(f"Failed to load records into memory: {e}")
+            self._handle_corruption()
+
+    def _handle_corruption(self):
+        """Backs up corrupted file and starts fresh."""
+        if os.path.exists(self.csv_path):
+            backup_name = f"{self.csv_path}.corrupted.{int(datetime.now().timestamp())}"
+            shutil.copy(self.csv_path, backup_name)
+            logger.warning(f"⚠️  Database corrupted. Backed up to {backup_name}. Starting with empty cache.")
+            self._records = {}
+
+    def is_downloaded(self, url: str) -> bool:
+        """Fast O(1) check using memory cache."""
+        record = self._records.get(url)
+        return record is not None and record.get('status') == 'success'
 
     def save_record(self, data: dict):
         """
-        Upsert a record.
-        Logic: 
-        - If URL exists and is 'success', valid new 'failed' will be ignored (unless force update logic is added).
-        - Otherwise, update/overwrite.
+        Updates memory cache and performs an atomic write to disk.
         """
-        records = self.load_records()
         url = data.get('url')
         if not url:
+            logger.warning("Attempted to save record without URL.")
             return
 
-        # Defaults
+        # Prepare normalized record
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        record_to_save = {
+        new_record = {
             'url': url,
             'status': data.get('status', 'unknown'),
-            'title': data.get('title', ''),
-            'author': data.get('author', ''),
-            'published_date': data.get('date', ''), # Map 'date' to 'published_date'
-            'folder_name': data.get('folder_name', ''), # Map 'local_path' or folder
+            'title': data.get('title', 'Untitled'),
+            'author': data.get('author', 'Unknown'),
+            'published_date': data.get('date', 'NoDate'),
+            'folder_name': data.get('folder_name', ''),
             'timestamp': current_time,
             'failure_reason': data.get('failure_reason', ''),
             'source': data.get('source', 'cli')
         }
 
-        # Check existing
-        existing = records.get(url)
+        # Policy: Prevent overwriting 'success' with 'failed'
+        existing = self._records.get(url)
         if existing:
-            # Policy: Don't overwrite SUCCESS with FAILED
-            if existing['status'] == 'success' and record_to_save['status'] == 'failed':
-                logger.info(f"💾 Record check: Keeping existing SUCCESS for {url} despite recent failure.")
+            if existing['status'] == 'success' and new_record['status'] == 'failed':
+                logger.debug(f"Skipping update for {url}: Preservation of successful status.")
                 return
             
-            # Policy: Preserve older info if new info is missing
-            if not record_to_save['title'] and existing['title']:
-                record_to_save['title'] = existing['title']
-            if not record_to_save['author'] and existing['author']:
-                record_to_save['author'] = existing['author']
-            
-        # Update dict
-        records[url] = record_to_save
-        
-        # Write back (Memory dump approach for consistency)
-        self._write_all(records.values())
+            # Preserve existing metadata if new metadata is missing
+            if new_record['title'] == 'Untitled' and existing.get('title'):
+                new_record['title'] = existing['title']
+            if new_record['author'] == 'Unknown' and existing.get('author'):
+                new_record['author'] = existing['author']
+            if not new_record['folder_name'] and existing.get('folder_name'):
+                new_record['folder_name'] = existing['folder_name']
 
-    def _write_all(self, rows):
-        """Rewrites the entire CSV."""
+        # Update Memory
+        self._records[url] = new_record
+        
+        # Commit to Disk (Atomic)
+        self._commit()
+
+    def _commit(self):
+        """
+        Performs an atomic write to the CSV file.
+        Uses a temporary file and os.replace to ensure data integrity.
+        """
         temp_path = self.csv_path + ".tmp"
         try:
             with open(temp_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=self.fieldnames)
                 writer.writeheader()
-                writer.writerows(rows)
+                writer.writerows(self._records.values())
             os.replace(temp_path, self.csv_path)
         except Exception as e:
-            logger.error(f"Failed to write records CSV: {e}")
+            logger.error(f"CRITICAL: Atomic write failed for {self.csv_path}: {e}")
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
 
-    def get_stats(self):
-        records = self.load_records()
-        total = len(records)
-        success = sum(1 for r in records.values() if r['status'] == 'success')
-        failed = sum(1 for r in records.values() if r['status'] == 'failed')
+    def get_stats(self) -> dict:
+        """Returns stats from memory cache."""
+        total = len(self._records)
+        success = sum(1 for r in self._records.values() if r['status'] == 'success')
+        failed = sum(1 for r in self._records.values() if r['status'] == 'failed')
         return {"total": total, "success": success, "failed": failed}
-
-    def is_downloaded(self, url: str) -> bool:
-        """Checks if a URL has been successfully downloaded."""
-        records = self.load_records()
-        record = records.get(url)
-        return record is not None and record.get('status') == 'success'

@@ -30,15 +30,27 @@ class IndexGenerator:
                                 meta = json.load(f)
                                 # Ensure relative path is correct for linking
                                 folder_encoded = quote(entry.name)
-                                filename_encoded = quote(meta.get('filename_base', 'article'))
+                                # Filename logic: folder_name (new) -> filename_base (legacy) -> default 'article'
+                                fname = meta.get('folder_name') or meta.get('filename_base', 'article')
+                                filename_encoded = quote(fname)
                                 meta['local_path'] = f"{folder_encoded}/{filename_encoded}.html"
+                                
+                                # Fallback for missing date
+                                # Support both 'published_date' (new) and 'date' (legacy)
+                                raw_date = meta.get('published_date') or meta.get('date')
+                                
+                                if not raw_date or raw_date == "NoDate":
+                                    meta['date'] = "Unknown"
+                                else:
+                                    meta['date'] = raw_date
+                                    
                                 articles.append(meta)
                         except Exception as e:
                             print(f"Error reading {meta_path}: {e}")
 
         # Sort Logic
-        # Sort by download_time descending (newest processed first)
-        articles.sort(key=lambda x: x.get('download_time', '0000-00-00'), reverse=True)
+        # Sort by timestamp (new) or download_time (legacy) descending
+        articles.sort(key=lambda x: x.get('timestamp') or x.get('download_time', '0000-00-00'), reverse=True)
         
         # Pagination Logic
         total_articles = len(articles)

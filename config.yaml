@@ -1,0 +1,23 @@
+# Application Configuration
+app:
+  # Browser & Network
+  timeout: 30
+  scroll_count: 5
+  headless: true
+  max_workers: 8
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+  # Output Formatting
+  items_per_page: 20
+  max_filename_length: 64
+  max_topic_length: 40
+
+# CSS Selectors for Platforms
+# Edit these if X.com changes their layout
+selectors:
+  x_com:
+    article: "article"
+    time: "time"
+    user_name: "div[data-testid='User-Name']"
+    tweet_text: "div[data-testid='tweetText']"
+    images: "img"

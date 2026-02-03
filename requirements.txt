@@ -6,3 +6,7 @@ tenacity
 python-dotenv
 Jinja2
 EbookLib
+pytest
+pytest-mock
+pytest-cov
+PyYAML

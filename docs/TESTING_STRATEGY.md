@@ -1,0 +1,115 @@
+# Testing Strategy & Quality Assurance
+
+This document outlines the testing architecture, tools, and workflows established to ensure the stability and reliability of the X Article Downloader.
+
+## 1. Core Philosophy: The Testing Pyramid
+
+We adopt a "Testing Pyramid" strategy to balance speed, cost, and reliability.
+
+*   **Unit Tests (80%)**:
+    *   **Scope**: Pure logic functions, data models, and utility classes.
+    *   **Characteristics**: Fast, isolated, no external dependencies (network/disk mocked).
+    *   **Coverage**: `RecordManager`, `ArticleMetadata`, `sanitize_filename`, etc.
+    *   **Location**: `tests/unit/`
+
+*   **Integration/Snapshot Tests (15%)**:
+    *   **Scope**: HTML parsing and content extraction logic.
+    *   **Characteristics**: Uses static HTML fixtures (snapshots) to simulate X.com responses. Ensures the extractor works correctly even if the live site changes.
+    *   **Coverage**: `XArticleExtractor`, HTML template rendering.
+    *   **Location**: `tests/integration/`
+
+*   **E2E Tests (5%)**:
+    *   **Scope**: Full browser automation (Browser -> Login -> Scroll -> Download).
+    *   **Characteristics**: Slow, brittle (due to anti-bot), run manually or on specific schedules.
+    *   **Status**: Currently manual smoke testing is preferred due to high maintenance cost.
+
+## 2. Technology Stack
+
+*   **Framework**: `pytest` (Standard, powerful fixture system).
+*   **Mocking**: `pytest-mock` (For mocking `open`, `os.replace`, `requests.get`).
+*   **Coverage**: `pytest-cov` (For generating line-by-line coverage reports).
+*   **Browser Engine**: `playwright` (Managed by the application, mocked in unit tests).
+
+## 3. Directory Structure
+
+```text
+tests/
+├── __init__.py
+├── conftest.py          # Global fixtures (e.g., mock HTML content)
+├── unit/                # Fast unit tests
+│   ├── test_utils.py
+│   └── test_record_manager.py
+└── integration/         # Logic verification using fixtures
+    ├── fixtures/        # Static HTML files from X.com
+    │   └── tweet_sample.html
+    └── test_extractor.py
+```
+
+## 4. Workflow & Automation
+
+### A. One-Click Testing (`test.sh`)
+
+We provide a convenience script to run the entire suite and generate a coverage report.
+
+```bash
+./test.sh
+```
+
+This script executes:
+1.  **Pytest**: Runs all tests in `tests/`.
+2.  **Coverage**: Checks `src/` for code execution coverage.
+3.  **Reporting**: Lists missing lines (`term-missing`) directly in your terminal.
+
+### B. Interpreting the Coverage Report
+
+The coverage table helps you identify "blind spots" in your code:
+
+| Column | Meaning |
+| :--- | :--- |
+| **Stmts** | Total lines of executable code. |
+| **Miss** | Lines never executed during tests. |
+| **Cover** | Percentage of code tested. |
+| **Missing** | The exact line numbers you need to add tests for. |
+
+*   **Goal**: Core modules like `record_manager.py` and `extractor.py` should aim for >80% coverage.
+*   **Note**: `main.py` often has 0% coverage because it requires a live browser; this is acceptable as long as underlying modules are tested.
+
+### C. The Development Cycle
+
+1.  **Modify/New Feature**: Edit code in `src/`.
+2.  **Run `./test.sh`**:
+    *   🟢 **Green**: Logic is sound. Check if coverage dropped.
+    *   🔴 **Red**: You broke something. Check the error message.
+3.  **Debug & Fix**: Use the test output to locate the bug.
+4.  **Refactor**: Clean up the code once tests are Green.
+
+## 5. Collaboration & Debugging
+
+When a test fails and you need help from the AI assistant, provide the following three pieces of information for rapid resolution:
+
+1.  **The Failed Test Name**: (e.g., `test_metadata_extraction`)
+2.  **The Full Stack Trace**: The error log from `pytest` showing where it crashed (the "E" lines and line numbers).
+3.  **Context**: What you recently changed in the code.
+
+**Developer Mantra**:
+> "Treat `./test.sh` as your 'safety net'. Run it after every meaningful change. If it's green, you're safe to proceed."
+
+## 6. Key Test Scenarios
+
+### RecordManager (Data Safety)
+*   **Atomic Write**: Simulates writing garbage data to ensure the DB doesn't get corrupted.
+*   **In-Memory Cache**: Verifies O(1) lookups after loading.
+*   **Status Protection**: Ensures a "failed" attempt doesn't overwrite a previous "success".
+
+### Extractor (Parsing Accuracy)
+*   **Metadata**: Correctly identifies Author, Date, and Topic from HTML.
+*   **Sanitization**: Ensures folder names are safe for the filesystem.
+
+## 7. The Golden Rule of Mocking
+
+When writing integration tests (e.g., for the `Indexer`), **never manually hand-craft dictionaries** to represent your data.
+
+*   **Bad**: `meta = {"date": "2024-01-01"}` (If the field name changes in production, this test will stay Green but your app will break).
+*   **Good**: `meta = ArticleMetadata(date="2024-01-01").to_dict()` (The test data is generated by the same logic used in production, ensuring any field name mismatch is caught immediately).
+
+Always use your **Production Models as the Source of Truth** for test data generation.

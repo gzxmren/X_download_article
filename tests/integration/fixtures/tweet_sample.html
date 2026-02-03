@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Test Tweet by @TestUser / X</title>
+    <style>body { background-color: #000; color: #fff; }</style>
+</head>
+<body>
+    <div id="react-root">
+        <main>
+            <!-- Simulate X's Article Structure -->
+            <article data-testid="tweet" role="article" tabindex="-1">
+                <!-- User Info -->
+                <div data-testid="User-Name">
+                    <div>
+                        <a href="/TestUser">
+                            <span>Test User</span>
+                        </a>
+                        <span>@TestUser</span>
+                        <span>·</span>
+                        <time datetime="2024-01-01T12:00:00.000Z">Jan 1</time>
+                    </div>
+                </div>
+                
+                <!-- Tweet Content -->
+                <div data-testid="tweetText" lang="en">
+                    <span>This is a robust test tweet content loaded from a file fixture.</span>
+                </div>
+                
+                <!-- Images -->
+                <div class="images-container">
+                    <img src="https://example.com/media/image1.jpg" alt="Image 1" />
+                    <img src="https://example.com/media/image2.jpg" alt="Image 2" />
+                </div>
+            </article>
+        </main>
+    </div>
+</body>
+</html>
