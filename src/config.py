@@ -19,7 +19,7 @@ class ConfigLoader:
         # Defaults
         self._config = {
             "app": {
-                "timeout": 20,
+                "timeout": 30,
                 "scroll_count": 5,
                 "headless": True,
                 "max_workers": 8,
@@ -34,6 +34,8 @@ class ConfigLoader:
                     "time": "time",
                     "user_name": "div[data-testid='User-Name']",
                     "tweet_text": "div[data-testid='tweetText']",
+                    "article_title": "div[data-testid='twitter-article-title']",
+                    "article_content": "div[data-testid='twitterArticleRichTextView']",
                     "images": "img"
                 }
             }
@@ -97,4 +99,6 @@ class Config:
         TIME = _x.get("time")
         USER_NAME = _x.get("user_name")
         TWEET_TEXT = _x.get("tweet_text")
+        ARTICLE_TITLE = _x.get("article_title")
+        ARTICLE_CONTENT = _x.get("article_content")
         IMAGES = _x.get("images")

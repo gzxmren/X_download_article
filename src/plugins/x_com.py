@@ -92,18 +92,27 @@ class XExtractor(IExtractor):
                 else:
                     meta.author = text.split('·')[0].strip().replace(" ", "")
 
-            # 3. Topic
-            # Try to get from page title first as it's often cleanest
-            page_title = self.soup.title.string if self.soup.title else ""
-            topic = "Image_Only"
+            # 3. Topic / Title
+            topic = ""
             
-            if page_title:
-                # Format: "User on X: 'Tweet Text' / X"
-                match = re.search(r'[:：]\s*["“](.+?)["”]\s*/\s*X$', page_title)
-                if match:
-                    topic = match.group(1).strip()
+            # A. Try Longform Article Title first
+            art_title_sel = self.selectors.get("article_title")
+            if art_title_sel:
+                art_title_div = self.main_article.select_one(art_title_sel)
+                if art_title_div:
+                    topic = art_title_div.get_text(strip=True)
+
+            # B. Try Page Title
+            if not topic:
+                page_title = self.soup.title.string if self.soup.title else ""
+                if page_title:
+                    # Flexible match for "User: 'Title' / X" or "User 上的 ...: 'Title' / X"
+                    match = re.search(r'[:：]\s*["“](.+?)["”]\s*/\s*X$', page_title)
+                    if match:
+                        topic = match.group(1).strip()
             
-            if topic == "Image_Only":
+            # C. Try Tweet Text fallback
+            if not topic:
                 text_sel = self.selectors.get("tweet_text", "div[data-testid='tweetText']")
                 text_div = self.main_article.select_one(text_sel)
                 if text_div:
@@ -111,6 +120,9 @@ class XExtractor(IExtractor):
                     if full_text:
                         topic = full_text[:100]
             
+            if not topic:
+                topic = "Image_Only"
+                
             meta.title = topic
             
             # Stable Naming: Include Tweet ID
@@ -141,8 +153,26 @@ class XExtractor(IExtractor):
                 if attr.lower().startswith("on"):
                     del tag[attr]
 
+        # 4. Content selection
+        # For Longform articles, we might want to prioritize the rich text view
         article_sel = self.selectors.get("article", "article")
-        articles = clean_soup.select(article_sel)
+        content_sel = self.selectors.get("article_content")
+        
+        # Try to find the specific main article in the clean soup
+        main_art_in_clean = None
+        if self.tweet_id:
+            candidates = clean_soup.select(article_sel)
+            for art in candidates:
+                if art.find("a", href=re.compile(f"/status/{self.tweet_id}")):
+                    main_art_in_clean = art
+                    break
+        
+        # Fallback to general selection
+        if main_art_in_clean:
+            articles = [main_art_in_clean]
+        else:
+            articles = clean_soup.select(article_sel)
+
         if not articles:
             return str(clean_soup)
 

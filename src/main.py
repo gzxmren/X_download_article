@@ -8,7 +8,7 @@ import requests
 from datetime import datetime
 from typing import Optional, List
 from concurrent.futures import ThreadPoolExecutor
-from playwright.sync_api import sync_playwright, Page
+from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeoutError
 from markdownify import markdownify as md
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -70,9 +70,14 @@ class XDownloader:
     def _safe_navigate(self, page: Page, url: str, timeout: int, wait_selector: str):
         """Navigates with retry logic."""
         logger.info(f"Navigating to {url}...")
-        page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-        page.wait_for_selector(wait_selector, timeout=timeout * 1000)
-        time.sleep(3) # Wait for hydration
+        try:
+            # Use 'domcontentloaded' for better reliability than 'commit'
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+            page.wait_for_selector(wait_selector, timeout=timeout * 1000)
+            time.sleep(3) # Wait for hydration
+        except Exception as e:
+            logger.warning(f"Navigation attempt failed for {url}: {e}")
+            raise e
 
     def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False) -> Optional[DownloadResult]:
         """
@@ -98,8 +103,17 @@ class XDownloader:
             try:
                 self._safe_navigate(page, url, timeout, plugin.get_wait_selector())
             except Exception as e:
-                logger.error(f"❌ Failed to load {url}: {e}")
-                meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Navigation: {str(e)}")
+                # Check for specific network/timeout indicators
+                is_timeout = isinstance(e, PlaywrightTimeoutError) or "Timeout" in str(e) or "timeout" in str(e)
+                
+                if is_timeout:
+                    logger.warning(f"⚠️  Timeout detected. This might be due to a slow network or the site blocking requests.")
+                    logger.error(f"❌ Failed to load {url} (Network/Timeout): {e}")
+                    meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Network Timeout: {str(e)}")
+                else:
+                    logger.error(f"❌ Failed to load {url}: {e}")
+                    meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Navigation: {str(e)}")
+
                 self.record_manager.save_record(meta.to_dict())
                 result.error_msg = str(e)
                 return result
@@ -163,7 +177,10 @@ class XDownloader:
                             img['src'] = os.path.relpath(path, article_dir)
                             if img.has_attr('srcset'): del img['srcset']
                     except Exception as exc:
-                        logger.warning(f"Image failed: {src}. Error: {exc}")
+                        if "timeout" in str(exc).lower():
+                            logger.warning(f"⚠️  Image download timed out: {src}")
+                        else:
+                            logger.warning(f"Image failed: {src}. Error: {exc}")
 
             # 6. Save Files
             html_content = str(final_soup)

@@ -16,23 +16,24 @@ from src.record_manager import RecordManager
 from src.logger import logger
 
 def cmd_sync(args):
-    """Scans output directory and populates records.csv"""
+    """Scans output directory and updates records.csv"""
     output_root = args.output
     manager = RecordManager(args.csv)
     
     print(f"🔍 Scanning {output_root} for meta.json files...")
     
-    count = 0
+    # 1. Get current folders on disk
+    existing_folders = set()
     if os.path.exists(output_root):
         for entry in os.scandir(output_root):
             if entry.is_dir():
                 meta_path = os.path.join(entry.path, "meta.json")
                 if os.path.exists(meta_path):
+                    existing_folders.add(entry.name)
                     try:
                         with open(meta_path, 'r', encoding='utf-8') as f:
                             meta = json.load(f)
-                            
-                        # Adapt meta.json fields to RecordManager fields
+                        
                         record = {
                             'url': meta.get('url'),
                             'status': 'success',
@@ -43,16 +44,28 @@ def cmd_sync(args):
                             'source': 'sync_scan',
                             'failure_reason': ''
                         }
-                        
                         if record['url']:
                             manager.save_record(record)
-                            count += 1
-                            if count % 10 == 0:
-                                print(f"   Processed {count} records...", end='\r')
                     except Exception as e:
                         print(f"❌ Error reading {meta_path}: {e}")
+
+    # 2. Cleanup: Remove records that are 'success' but folder is missing
+    print("🧹 Cleaning up records with missing folders...")
+    to_remove = []
+    for url, rec in manager._records.items():
+        if rec.get('status') == 'success':
+            folder = rec.get('folder_name')
+            if folder and folder not in existing_folders:
+                to_remove.append(url)
     
-    print(f"\n✅ Sync complete. Processed {count} valid records.")
+    for url in to_remove:
+        print(f"   Removing orphan record: {url}")
+        del manager._records[url]
+    
+    if to_remove:
+        manager._commit()
+    
+    print(f"\n✅ Sync complete. {len(to_remove)} orphan records removed.")
     
     # Also scan failures.json if it exists
     fail_path = os.path.join(output_root, "failures.json")

@@ -1,7 +1,7 @@
 # Application Configuration
 app:
   # Browser & Network
-  timeout: 30
+  timeout: 60
   scroll_count: 5
   headless: true
   max_workers: 8

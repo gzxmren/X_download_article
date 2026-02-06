@@ -38,3 +38,21 @@ AI humanization fails a lot because it's vague... "write like a human" means not
 but "score above 4 on natural rhythm, eliminate these 17 phrase patterns, keep sentence variance between 8-25 words" is executable
 
 your Skill becomes a system, now your goal is to update it as you detect what makes AI content sound AI
+
+
+
+python3 src/main.py "https://x.com/LabSpeculation/status/2018475069727740387?s=20" --force
+21:13:46 - INFO - Loaded configuration from /home/xmren/gemini/X_download_article/config.yaml
+21:13:46 - INFO - Loaded 149 records into memory cache.
+21:13:46 - INFO - Launching Chromium (Headless: True)
+21:13:46 - INFO - Cookies loaded.
+21:13:46 - INFO - Processing URL: https://x.com/LabSpeculation/status/2018475069727740387?s=20
+21:13:46 - INFO - Navigating to https://x.com/LabSpeculation/status/2018475069727740387?s=20...
+21:14:20 - INFO - Navigating to https://x.com/LabSpeculation/status/2018475069727740387?s=20...
+21:14:59 - INFO - Navigating to https://x.com/LabSpeculation/status/2018475069727740387?s=20...
+21:15:31 - ERROR - ❌ Failed to load https://x.com/LabSpeculation/status/2018475069727740387?s=20: RetryError[<Future at 0x75a9a29b2600 state=finished raised TimeoutError>]
+21:15:31 - INFO - Downloader resources released.
+21:15:31 - INFO - Generating Index...
+📊 Index updated: 143 articles across 8 pages.
+21:15:31 - INFO - Finished.
+

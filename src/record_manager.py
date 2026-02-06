@@ -79,12 +79,16 @@ class RecordManager:
 
         # Prepare normalized record
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Support both 'date' and 'published_date' keys for compatibility
+        published_date = data.get('published_date') or data.get('date', 'NoDate')
+        
         new_record = {
             'url': url,
             'status': data.get('status', 'unknown'),
             'title': data.get('title', 'Untitled'),
             'author': data.get('author', 'Unknown'),
-            'published_date': data.get('date', 'NoDate'),
+            'published_date': published_date,
             'folder_name': data.get('folder_name', ''),
             'timestamp': current_time,
             'failure_reason': data.get('failure_reason', ''),
