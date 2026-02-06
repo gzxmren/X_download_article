@@ -5,103 +5,184 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>X Articles Library</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .sort-icon::after { content: '↕'; margin-left: 4px; font-size: 0.8em; }
+        .sort-asc::after { content: '↑'; }
+        .sort-desc::after { content: '↓'; }
+        .highlight { background-color: #fde047; font-weight: bold; border-radius: 2px; padding: 0 2px; }
+    </style>
 </head>
 <body class="bg-yellow-100 min-h-screen p-8">
     <div class="max-w-6xl mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200 bg-white flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-gray-800">📚 X Articles Library</h1>
-            <span class="text-sm text-gray-500">Last Updated: {{ generated_at }}</span>
+        <!-- Header & Controls -->
+        <div class="px-6 py-4 border-b border-gray-200 bg-white">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-4">
+                <h1 class="text-2xl font-bold text-gray-800">📚 X Articles Library</h1>
+                <span class="text-sm text-gray-500">Last Updated: {{ generated_at }}</span>
+            </div>
+            
+            <!-- Search & Sort Controls -->
+            <div class="flex flex-col md:flex-row gap-4">
+                <input type="text" id="searchInput" placeholder="Search title, author or date (e.g. 2026-02)..." 
+                       class="flex-1 appearance-none rounded-md relative block px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                
+                <div class="flex gap-2">
+                    <button onclick="sortData('date')" id="btn-date" class="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none sort-icon">
+                        Date
+                    </button>
+                    <button onclick="sortData('author')" id="btn-author" class="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none sort-icon">
+                        Author
+                    </button>
+                </div>
+            </div>
         </div>
         
+        <!-- Table -->
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Topic</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Author</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 cursor-pointer" onclick="sortData('date')">Date</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" onclick="sortData('title')">Topic</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-40 cursor-pointer" onclick="sortData('author')">Author</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Action</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for art in articles %}
-                    <tr class="hover:bg-gray-50 transition">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ art.date }}</td>
-                        <td class="px-6 py-4">
-                            <div class="text-sm font-medium text-gray-900"><a href="{{ art.local_path }}" class="hover:text-blue-600">{{ art.title }}</a></div>
-                            <div class="text-sm text-gray-500"><a href="{{ art.url }}" target="_blank" class="text-xs text-blue-400 hover:underline">Original Source</a></div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ art.author }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <a href="{{ art.local_path }}" class="text-indigo-600 hover:text-indigo-900">View Local</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
+                <tbody id="articleList" class="bg-white divide-y divide-gray-200">
+                    <!-- JS will populate this -->
                 </tbody>
             </table>
         </div>
         
-        <!-- Pagination -->
-        {% if total_pages > 1 %}
-        <div class="px-6 py-4 border-t border-gray-200 bg-white flex items-center justify-between">
-            <div class="flex-1 flex justify-between sm:hidden">
-                {% if prev_page %}
-                <a href="{{ prev_page }}" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Previous</a>
-                {% endif %}
-                {% if next_page %}
-                <a href="{{ next_page }}" class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Next</a>
-                {% endif %}
-            </div>
-            <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                <div>
-                    <p class="text-sm text-gray-700">
-                        Showing page <span class="font-medium">{{ current_page }}</span> of <span class="font-medium">{{ total_pages }}</span>
-                    </p>
-                </div>
-                <div>
-                    <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                        {% if prev_page %}
-                        <a href="{{ prev_page }}" class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                            <span class="sr-only">Previous</span>
-                            <!-- Heroicon name: solid/chevron-left -->
-                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </a>
-                        {% endif %}
-                        
-                        <!-- Simple Page Numbers -->
-                        {% for p in range(1, total_pages + 1) %}
-                            {% set p_link = 'index.html' if p == 1 else 'index_' ~ p ~ '.html' %}
-                            {% if p == current_page %}
-                                <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-indigo-50 text-sm font-medium text-indigo-600 z-10">
-                                    {{ p }}
-                                </span>
-                            {% else %}
-                                <a href="{{ p_link }}" class="bg-white border-gray-300 text-gray-500 hover:bg-gray-50 relative inline-flex items-center px-4 py-2 border text-sm font-medium">
-                                    {{ p }}
-                                </a>
-                            {% endif %}
-                        {% endfor %}
-
-                        {% if next_page %}
-                        <a href="{{ next_page }}" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
-                            <span class="sr-only">Next</span>
-                            <!-- Heroicon name: solid/chevron-right -->
-                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        </a>
-                        {% endif %}
-                    </nav>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 text-sm text-gray-500">
-            Total Articles: {{ total_count }}
+        <!-- Footer / Counter -->
+        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 text-sm text-gray-500 flex justify-between">
+            <span id="showingCount">Showing 0 of 0 articles</span>
+            <span>Total: {{ total_count }}</span>
         </div>
     </div>
+
+    <script>
+        // Data Injection from Python
+        const rawData = {{ articles_json | safe }};
+        let currentData = [...rawData];
+        
+        // State
+        let sortCol = 'date';
+        let sortAsc = false; // Default desc for date
+        let currentSearchTerm = '';
+
+        // DOM Elements
+        const tbody = document.getElementById('articleList');
+        const searchInput = document.getElementById('searchInput');
+        const countLabel = document.getElementById('showingCount');
+        const btnDate = document.getElementById('btn-date');
+        const btnAuthor = document.getElementById('btn-author');
+
+        // Initial Render
+        renderTable(currentData);
+        updateSortUI();
+
+        // Search Logic
+        searchInput.addEventListener('input', (e) => {
+            currentSearchTerm = e.target.value.toLowerCase();
+            currentData = rawData.filter(item => {
+                return (item.title && item.title.toLowerCase().includes(currentSearchTerm)) ||
+                       (item.author && item.author.toLowerCase().includes(currentSearchTerm)) ||
+                       (item.date && item.date.toLowerCase().includes(currentSearchTerm));
+            });
+            // Re-apply current sort
+            sortData(sortCol, true); 
+        });
+
+        // Sort Logic
+        function sortData(column, keepOrder = false) {
+            if (!keepOrder) {
+                if (sortCol === column) {
+                    sortAsc = !sortAsc;
+                } else {
+                    sortCol = column;
+                    sortAsc = true; 
+                    if (column === 'date') sortAsc = false; 
+                }
+            }
+
+            currentData.sort((a, b) => {
+                let valA = (a[column] || '').toString().toLowerCase();
+                let valB = (b[column] || '').toString().toLowerCase();
+
+                if (valA < valB) return sortAsc ? -1 : 1;
+                if (valA > valB) return sortAsc ? 1 : -1;
+                return 0;
+            });
+
+            renderTable(currentData, currentSearchTerm);
+            updateSortUI();
+        }
+
+        // UI Helpers
+        function highlightText(text, term) {
+            if (!term) return text;
+            // Escape special regex characters in term
+            const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedTerm})`, 'gi');
+            return text.replace(regex, '<span class="highlight">$1</span>');
+        }
+
+        function updateSortUI() {
+            // Reset classes
+            [btnDate, btnAuthor].forEach(btn => {
+                btn.classList.remove('sort-asc', 'sort-desc');
+                btn.classList.add('text-gray-700');
+                btn.classList.remove('text-indigo-600', 'bg-indigo-50');
+            });
+
+            // Active button
+            let activeBtn = null;
+            if (sortCol === 'date') activeBtn = btnDate;
+            if (sortCol === 'author') activeBtn = btnAuthor;
+
+            if (activeBtn) {
+                activeBtn.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+                activeBtn.classList.add('text-indigo-600', 'bg-indigo-50');
+                activeBtn.classList.remove('text-gray-700');
+            }
+        }
+
+        function renderTable(data, term = '') {
+            tbody.innerHTML = '';
+            
+            const displayData = data.slice(0, 500); 
+
+            displayData.forEach(art => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition';
+                
+                const titleHighlighted = highlightText(art.title || 'Untitled', term);
+                const authorHighlighted = highlightText(art.author || 'Unknown', term);
+                const dateHighlighted = highlightText(art.date || '', term);
+
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${dateHighlighted}</td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm font-medium text-gray-900"><a href="${art.local_path}" class="hover:text-blue-600">${titleHighlighted}</a></div>
+                        <div class="text-sm text-gray-500"><a href="${art.url}" target="_blank" class="text-xs text-blue-400 hover:underline">Original Source</a></div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${authorHighlighted}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <a href="${art.local_path}" class="text-indigo-600 hover:text-indigo-900">View Local</a>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            countLabel.textContent = `Showing ${displayData.length} of ${data.length} articles`;
+            
+            if (data.length > 500) {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td colspan="4" class="px-6 py-4 text-center text-gray-500 italic">... and ${data.length - 500} more matches. Refine search to see them.</td>`;
+                tbody.appendChild(row);
+            }
+        }
+    </script>
 </body>
 </html>

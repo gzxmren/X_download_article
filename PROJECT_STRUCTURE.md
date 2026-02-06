@@ -53,6 +53,6 @@
 
 *   **`record_manager.py`**: 负责维护 `records.csv`。记录每个 URL 的下载状态（成功/失败）、标题、作者和日期，防止重复下载。
 *   **`plugin_manager.py`**: 插件分发器。根据 URL 自动匹配最适合的插件（如 XComPlugin）。
-*   **`indexer.py`**: 自动生成索引。将所有已下载的文章组织成一个可搜索、带分页的网页索引。
+*   **`indexer.py`**: 自动生成动态索引。将所有已下载的文章元数据以 JSON 格式嵌入单页面 `index.html` 中，实现极速的客户端搜索与排序。
 *   **`exporter.py`**: 将 HTML 转换为高质量的 PDF 或 EPUB。
 *   **`models.py`**: 定义了项目的数据结构（如 `ArticleMetadata`）。

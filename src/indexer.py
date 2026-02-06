@@ -16,7 +16,7 @@ class IndexGenerator:
         self.ordered_urls = ordered_urls or []
 
     def generate(self):
-        """Scans all subdirectories for meta.json and rebuilds index.html with pagination."""
+        """Scans all subdirectories for meta.json and rebuilds index.html with client-side search/sort."""
         articles = []
         
         # Scan directories
@@ -48,58 +48,29 @@ class IndexGenerator:
                         except Exception as e:
                             print(f"Error reading {meta_path}: {e}")
 
-        # Sort Logic
+        # Sort Logic (Initial backend sort)
         # Sort by timestamp (new) or download_time (legacy) descending
         articles.sort(key=lambda x: x.get('timestamp') or x.get('download_time', '0000-00-00'), reverse=True)
         
-        # Pagination Logic
         total_articles = len(articles)
-        per_page = Config.ITEMS_PER_PAGE
         
-        # Calculate chunks
-        if total_articles > 0:
-            chunks = [articles[i:i + per_page] for i in range(0, total_articles, per_page)]
-        else:
-            chunks = [[]] # Handle empty case
-            
-        total_pages = len(chunks)
+        # Generate single index.html with embedded data
+        file_path = os.path.join(self.output_root, "index.html")
         
-        for i, chunk in enumerate(chunks):
-            page_num = i + 1
-            self._write_single_page(chunk, page_num, total_pages, total_articles)
-            
-        print(f"📊 Index updated: {total_articles} articles across {total_pages} pages.")
-
-    def _write_single_page(self, articles_chunk, page_num, total_pages, total_count):
-        # Determine filename
-        if page_num == 1:
-            filename = "index.html"
-        else:
-            filename = f"index_{page_num}.html"
-            
-        file_path = os.path.join(self.output_root, filename)
-        
-        # Determine Links
-        prev_page = None
-        if page_num > 1:
-            prev_page = "index.html" if page_num == 2 else f"index_{page_num - 1}.html"
-            
-        next_page = None
-        if page_num < total_pages:
-            next_page = f"index_{page_num + 1}.html"
-
         try:
             template = env.get_template("index.html")
+            # Serialize articles to JSON string for JS embedding
+            articles_json = json.dumps(articles, ensure_ascii=False)
+            
             html_content = template.render(
-                articles=articles_chunk,
-                total_count=total_count,
-                generated_at=datetime.now().strftime('%Y-%m-%d %H:%M'),
-                current_page=page_num,
-                total_pages=total_pages,
-                prev_page=prev_page,
-                next_page=next_page
+                articles_json=articles_json, # Pass JSON string
+                total_count=total_articles,
+                generated_at=datetime.now().strftime('%Y-%m-%d %H:%M')
             )
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
+            
+            print(f"📊 Index updated: {total_articles} articles. (Client-side rendering enabled)")
+            
         except Exception as e:
-            print(f"Index generation failed for page {page_num}: {e}")
+            print(f"Index generation failed: {e}")

@@ -41,17 +41,17 @@ def test_indexer_generates_pages(tmp_path):
     index_2 = output_root / "index_2.html"
     
     assert index_1.exists()
-    assert index_2.exists()
+    assert not index_2.exists() # Should no longer exist (Client-side pagination)
     
     # 4. Verify Content
     content_1 = index_1.read_text(encoding='utf-8')
-    content_2 = index_2.read_text(encoding='utf-8')
     
-    # Sort order is descending by time
+    # Check for embedded JSON
+    assert "const rawData = [" in content_1
+    
+    # Check if data is present in the JSON string
     assert f"Test Article {items_needed - 1}" in content_1
-    assert "Test Article 0" in content_2
+    assert "Test Article 0" in content_1
     
     # Verify Date Rendering (Crucial Check)
-    # The template expects 'date' or handles 'published_date' fallback. 
-    # If indexer fails to map 'published_date' to the template var, this will fail or show 'Unknown'.
     assert "2024-01-01" in content_1
