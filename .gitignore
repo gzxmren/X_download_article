@@ -11,7 +11,7 @@ input/cookies.json
 output/
 logs/
 debug_failed_extraction.html
-
+wrong twitter log.txt
 # OS
 .DS_Store
 .vscode/
