@@ -10,10 +10,14 @@
 *   **目的**：执行网页抓取、内容提取及文件生成。
 *   **调用方式**：
     ```bash
-    # 方式 1：下载单个 URL
+    # 方式 1：交互式输入 (推荐用于复杂 URL)
+    python3 src/main.py
+    # 按提示粘贴 URL 即可，无需担心引号转义问题
+    
+    # 方式 2：下载单个 URL (命令行参数)
     python3 src/main.py "https://x.com/user/status/123" --markdown
     
-    # 方式 2：批量下载 (推荐)
+    # 方式 3：批量下载
     python3 src/main.py input/urls.txt --markdown --pdf
     ```
 *   **常用参数**：

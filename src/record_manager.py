@@ -83,11 +83,17 @@ class RecordManager:
         # Support both 'date' and 'published_date' keys for compatibility
         published_date = data.get('published_date') or data.get('date', 'NoDate')
         
+        # CSV Injection Protection: Prepend ' to values starting with risky characters
+        def sanitize_csv_field(val: str) -> str:
+            if val and isinstance(val, str) and val[0] in ('=', '+', '-', '@'):
+                return "'" + val
+            return val
+
         new_record = {
             'url': url,
             'status': data.get('status', 'unknown'),
-            'title': data.get('title', 'Untitled'),
-            'author': data.get('author', 'Unknown'),
+            'title': sanitize_csv_field(data.get('title', 'Untitled')),
+            'author': sanitize_csv_field(data.get('author', 'Unknown')),
             'published_date': published_date,
             'folder_name': data.get('folder_name', ''),
             'timestamp': current_time,

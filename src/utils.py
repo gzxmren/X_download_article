@@ -9,10 +9,24 @@ def sanitize_filename(text: str) -> str:
     """
     Sanitizes a string to be safe for file systems.
     """
-    # Remove invalid characters
+    # 1. Remove control characters (0x00-0x1f)
+    text = "".join(ch for ch in text if ord(ch) >= 32)
+    
+    # 2. Remove invalid characters for Windows/Linux
     text = re.sub(r'[\\/*?:\"<>|]', "", text)
+    
+    # 3. Handle whitespace and formatting
     text = text.replace("\n", " ").replace("\r", "")
     text = re.sub(r'\s+', "_", text).strip("_")
+    
+    # 4. Security: Prevent leading dots (path traversal / hidden files)
+    while text.startswith("."):
+        text = text[1:]
+        
+    # 5. Fallback for empty strings
+    if not text:
+        text = "untitled_article"
+        
     return text[:Config.MAX_FILENAME_LENGTH]
 
 def get_filename_from_url(url: str) -> str:

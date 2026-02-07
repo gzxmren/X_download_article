@@ -1,5 +1,6 @@
 import os
 import re
+from urllib.parse import urlparse
 from typing import List, Tuple, Any
 from bs4 import BeautifulSoup, Tag
 from jinja2 import Environment, FileSystemLoader
@@ -16,7 +17,25 @@ class XComPlugin(IPlugin):
         return "x_com"
 
     def can_handle(self, url: str) -> bool:
-        return "x.com" in url or "twitter.com" in url
+        try:
+            parsed = urlparse(url)
+            # Security: Only allow http and https schemes
+            if parsed.scheme not in ('http', 'https'):
+                return False
+            
+            # Security: Strict domain whitelist
+            domain = parsed.netloc.lower()
+            if ":" in domain:
+                domain = domain.split(":")[0]
+                
+            allowed_domains = {
+                'x.com', 'www.x.com', 
+                'twitter.com', 'www.twitter.com',
+                'mobile.twitter.com'
+            }
+            return domain in allowed_domains
+        except Exception:
+            return False
 
     def get_wait_selector(self) -> str:
         selectors = ConfigLoader().get("selectors.x_com", {})

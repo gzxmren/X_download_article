@@ -71,10 +71,10 @@ class XDownloader:
         """Navigates with retry logic."""
         logger.info(f"Navigating to {url}...")
         try:
-            # Use 'domcontentloaded' for better reliability than 'commit'
+            # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com due to constant polling
             page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            page.wait_for_selector(wait_selector, timeout=timeout * 1000)
-            time.sleep(3) # Wait for hydration
+            # Ensure the specific content is visible (this is the key check)
+            page.wait_for_selector(wait_selector, state="visible", timeout=timeout * 1000)
         except Exception as e:
             logger.warning(f"Navigation attempt failed for {url}: {e}")
             raise e
@@ -229,7 +229,7 @@ class XDownloader:
 
 def main():
     parser = argparse.ArgumentParser(description="Universal Article Downloader (Plugin Architecture)")
-    parser.add_argument("input", help="URL or file with URLs")
+    parser.add_argument("input", nargs="?", help="URL or file with URLs")
     parser.add_argument("--cookies", "-c", default="input/cookies.txt")
     parser.add_argument("--output", "-o", default="output")
     parser.add_argument("--headless", action="store_false", dest="headless", help="Show browser window")
@@ -242,6 +242,18 @@ def main():
     
     parser.set_defaults(headless=Config.HEADLESS, markdown=False)
     args = parser.parse_args()
+
+    # Interactive mode if no input provided
+    if not args.input:
+        print("Please enter the URL or file path:")
+        try:
+            args.input = input().strip()
+        except EOFError:
+            return
+
+    if not args.input:
+        print("No input provided. Exiting.")
+        return
 
     # Prepare URLs
     urls = []

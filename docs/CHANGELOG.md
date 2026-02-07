@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.0] - 2026-02-07 (Security & Reliability)
+
+### Security Hardening
+- **SSRF Prevention**: Implemented strict URL validation in `XComPlugin`. Now only allows `http`/`https` schemes and whitelisted domains (x.com, twitter.com) using `urllib.parse`, preventing local file inclusion and intranet scanning.
+- **Path Traversal Defense**: Enhanced `sanitize_filename` in `src/utils.py` to filter control characters (0x00-0x1f) and strip leading dots, preventing file system manipulation.
+- **CSV Injection Protection**: Updated `RecordManager` to escape fields starting with `=`, `+`, `-`, `@` by prepending a single quote, neutralizing potential Excel macro execution.
+
+### Reliability & Usability
+- **Dynamic Waiting**: Replaced hardcoded `time.sleep(3)` in `src/main.py` with `page.wait_for_selector(state="visible")`. This significantly improves speed on fast networks while maintaining stability on slow ones.
+- **Interactive Mode**: `src/main.py` now accepts input via stdin if no arguments are provided, allowing users to safely paste complex URLs without worrying about shell escaping.
+
+### Documentation
+- Added `docs/SECURITY_REVIEW.md` detailing the security audit findings and fixes.
+
 ## [2.0.1] - 2026-02-02 (Resilience & Bug Fixes)
 
 ### Fixed
