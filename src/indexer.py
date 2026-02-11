@@ -35,14 +35,16 @@ class IndexGenerator:
                                 filename_encoded = quote(fname)
                                 meta['local_path'] = f"{folder_encoded}/{filename_encoded}.html"
                                 
-                                # Fallback for missing date
-                                # Support both 'published_date' (new) and 'date' (legacy)
-                                raw_date = meta.get('published_date') or meta.get('date')
+                                # Date Display Logic: Use processing time (timestamp) as requested
+                                # Fallback to published_date if timestamp is missing
+                                raw_date = meta.get('timestamp') or meta.get('download_time')
                                 
-                                if not raw_date or raw_date == "NoDate":
-                                    meta['date'] = "Unknown"
+                                if raw_date:
+                                    # Extract YYYY-MM-DD from ISO format
+                                    meta['date'] = raw_date.split('T')[0]
                                 else:
-                                    meta['date'] = raw_date
+                                    # Legacy fallback
+                                    meta['date'] = meta.get('published_date') or meta.get('date') or "Unknown"
                                     
                                 articles.append(meta)
                         except Exception as e:

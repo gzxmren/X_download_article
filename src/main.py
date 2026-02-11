@@ -20,7 +20,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import modules
-from src.utils import load_cookies
+from src.utils import load_cookies, safe_navigate
 from src.logger import logger
 from src.indexer import IndexGenerator
 from src.config import Config
@@ -66,19 +66,6 @@ class XDownloader:
                     f.write(chunk)
         return True
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-    def _safe_navigate(self, page: Page, url: str, timeout: int, wait_selector: str):
-        """Navigates with retry logic."""
-        logger.info(f"Navigating to {url}...")
-        try:
-            # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com due to constant polling
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            # Ensure the specific content is visible (this is the key check)
-            page.wait_for_selector(wait_selector, state="visible", timeout=timeout * 1000)
-        except Exception as e:
-            logger.warning(f"Navigation attempt failed for {url}: {e}")
-            raise e
-
     def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False) -> Optional[DownloadResult]:
         """
         Processes a single URL. Returns DownloadResult if error occurred, else None.
@@ -101,7 +88,7 @@ class XDownloader:
 
             # 1. Navigate
             try:
-                self._safe_navigate(page, url, timeout, plugin.get_wait_selector())
+                safe_navigate(page, url, timeout, plugin.get_wait_selector())
             except Exception as e:
                 # Check for specific network/timeout indicators
                 is_timeout = isinstance(e, PlaywrightTimeoutError) or "Timeout" in str(e) or "timeout" in str(e)
@@ -282,9 +269,13 @@ def main():
             page = context.new_page()
 
             for url in urls:
-                result = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
-                if result:
-                    failures.append(result.__dict__)
+                try:
+                    result = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
+                    if result:
+                        failures.append(result.__dict__)
+                except KeyboardInterrupt:
+                    logger.warning(f"\n⚠️  User skipped {url} (Ctrl+C detected). Moving to next...")
+                    continue
 
             browser.close()
     finally:

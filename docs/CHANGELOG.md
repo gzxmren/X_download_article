@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.2.0] - 2026-02-11 (UX & Resilience)
+
+### Reliability
+- **Fail Fast Strategy**: Implemented a "Step-up Timeout" mechanism in `safe_navigate`. 
+    - **Phase 1 (Probe)**: Attempts a fast connection (10s). If it fails, it catches the error early instead of waiting for the full timeout.
+    - **Phase 2 (Retry)**: If the probe fails, retries with the full configured timeout (default 30s) to handle slow but valid connections.
+    - This eliminates the frustration of waiting 90s+ for dead links.
+
+### Usability
+- **Interactive Skip**: Added `Ctrl+C` handling in the main download loop. Users can now press `Ctrl+C` to instantly skip the current stuck URL and proceed to the next one, without terminating the entire program.
+
+### Refactoring
+- **Navigation Logic**: Extracted network navigation logic from `src/main.py` to `src/utils.py` (`safe_navigate`), decoupling business logic from network handling and improving testability.
+
 ## [2.1.0] - 2026-02-07 (Security & Reliability)
 
 ### Security Hardening
