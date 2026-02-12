@@ -20,7 +20,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import modules
-from src.utils import load_cookies, safe_navigate
+from src.utils import load_cookies, safe_navigate, validate_and_fix_url
 from src.logger import logger
 from src.indexer import IndexGenerator
 from src.config import Config
@@ -242,15 +242,31 @@ def main():
         print("No input provided. Exiting.")
         return
 
-    # Prepare URLs
-    urls = []
+    # Prepare & Validate URLs
+    raw_urls = []
     if os.path.isfile(args.input):
-        with open(args.input, 'r') as f:
-            urls = [l.strip().strip('"\'“”') for l in f if l.strip() and not l.strip().startswith("#")]
+        try:
+            with open(args.input, 'r', encoding='utf-8') as f:
+                raw_urls = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+        except Exception as e:
+             logger.error(f"Failed to read input file: {e}")
+             return
     else:
-        urls = [args.input.strip().strip('"\'“”')]
+        raw_urls = [args.input.strip()]
 
-    if not urls: return
+    urls = []
+    for r_url in raw_urls:
+        valid_url = validate_and_fix_url(r_url)
+        if valid_url:
+            urls.append(valid_url)
+        else:
+            logger.warning(f"⚠️  Skipping invalid URL: {r_url}")
+
+    if not urls:
+        logger.error("No valid URLs to process.")
+        return
+
+    logger.info(f"Processing {len(urls)} valid URLs...")
 
     downloader = XDownloader(args.output, args.markdown, args.pdf, args.epub)
     failures = []

@@ -111,3 +111,39 @@ def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
     except Exception as e:
         logger.warning(f"Navigation attempt failed for {url}: {e}")
         raise e
+
+def validate_and_fix_url(url: str) -> str | None:
+    """
+    Validates and attempts to fix common URL typos.
+    Returns the fixed URL string if valid, otherwise returns None.
+    """
+    if not url:
+        return None
+        
+    fixed_url = url.strip().strip('"\'“”')
+    
+    # 1. Common Typo Fixes
+    if fixed_url.startswith("hhttps://"):
+        fixed_url = "https://" + fixed_url[8:]
+    elif fixed_url.startswith("htpp://"):
+        fixed_url = "http://" + fixed_url[7:]
+    elif fixed_url.startswith("ttps://"):
+        fixed_url = "https://" + fixed_url[7:]
+    elif not fixed_url.startswith("http"):
+        # Assume https for missing scheme
+        fixed_url = "https://" + fixed_url
+
+    # 2. Strict Validation Pattern
+    # Matches http/https/ftp with a domain/ip and optional path
+    pattern = re.compile(
+        r'^(?:http|ftp)s?://' # scheme
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' # domain
+        r'localhost|' # localhost
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ip
+        r'(?::\d+)?' # port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    if pattern.match(fixed_url):
+        return fixed_url
+    
+    return None

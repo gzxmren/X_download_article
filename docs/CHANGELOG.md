@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.3.0] - 2026-02-12 (UX & Resilience)
+
+### Features
+- **Configurable Pagination**: The number of articles displayed per page in `index.html` is now configurable via `config.yaml` (default: 20). This allows users to adjust the density of the article list based on their preference and performance needs.
+
+### Reliability
+- **Robust URL Handling**: Implemented a dedicated `validate_and_fix_url` utility in `src/utils.py`.
+    - **Auto-fix**: Automatically corrects common typos like `hhttps://`, `htpp://`, and missing schemes.
+    - **Strict Validation**: Uses regex to ensure URLs are valid before attempting to process them, preventing wasted resources on malformed inputs.
+    - **Fail-Fast**: Invalid URLs are now skipped immediately with a clear warning, preventing the application from crashing or hanging on bad input.
+
+### Refactoring
+- **Code Maintainability**: Moved URL validation logic out of `main.py` into `src/utils.py` to improve code readability and reusability, adhering to the Single Responsibility Principle.
+
 ## [2.2.0] - 2026-02-11 (UX & Resilience)
 
 ### Reliability

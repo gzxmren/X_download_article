@@ -2,13 +2,13 @@
 app:
   # Browser & Network
   timeout: 60
-  scroll_count: 5
+  scroll_count: 3
   headless: true
-  max_workers: 8
+  max_workers: 5
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
   # Output Formatting
-  items_per_page: 20
+  items_per_page: 10
   max_filename_length: 64
   max_topic_length: 40
 

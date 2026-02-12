@@ -12,6 +12,9 @@ output/
 logs/
 debug_failed_extraction.html
 wrong twitter log.txt
+debug/
+.coverage
+check_proxy.sh
 # OS
 .DS_Store
 .vscode/

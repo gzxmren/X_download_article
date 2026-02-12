@@ -6,9 +6,10 @@ This document records technical decisions, architectural patterns, and proposed 
 *   **Model**: Hybrid Parallel (Playwright Main Thread + Requests ThreadPool).
 *   **Detail**: High efficiency for asset retrieval without thread-safety risks.
 
-## 2. Global Index & Pagination (Implemented v1.6.0)
-*   **Engine**: Jinja2.
-*   **Feature**: Static site generation with configurable pagination logic.
+## 2. Global Index & Pagination (Implemented v1.6.0, Updated v2.3.0)
+*   **Engine**: Jinja2 (Backend) + Vanilla JS (Frontend).
+*   **Feature**: Static site generation with client-side search, sort, and pagination.
+*   **Configuration**: Pagination size (items per page) is configurable via `config.yaml` (`app.items_per_page`), allowing users to control information density.
 
 ## 3. Multi-URL Concurrency Design (Target: v2.0)
 
@@ -56,3 +57,11 @@ async def main():
 ## 4. Single-File High Fidelity (Implemented v1.7.0)
 *   **Logic**: Full CSS extraction from source `<style>` tags.
 *   **Integration**: Injected into Jinja2 head via `{{ styles | safe }}` to ensure 1:1 visual match for archives.
+
+## 5. Robust Input Validation (Implemented v2.3.0)
+*   **Objective**: Prevent resource waste on malformed or typo-ridden URLs.
+*   **Strategy**:
+    *   **Preprocessing**: Centralized `validate_and_fix_url` utility in `src/utils.py`.
+    *   **Auto-Correction**: Heuristic fixing of common typos (e.g., `hhttps://`, missing scheme).
+    *   **Strict Validation**: Regex-based filtering to ensure only structurally valid URLs (http/https) are processed.
+    *   **Fail-Fast**: Invalid URLs are logged and skipped immediately before any browser or network initialization.

@@ -67,6 +67,7 @@ class IndexGenerator:
             html_content = template.render(
                 articles_json=articles_json, # Pass JSON string
                 total_count=total_articles,
+                items_per_page=Config.ITEMS_PER_PAGE,
                 generated_at=datetime.now().strftime('%Y-%m-%d %H:%M')
             )
             with open(file_path, "w", encoding="utf-8") as f:
