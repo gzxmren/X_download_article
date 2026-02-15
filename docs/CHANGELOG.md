@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.1] - 2026-02-16 (Reliability & Robustness)
+
+### Reliability
+- **Optimized Navigation Strategy**: Removed the flaky "Fast Probe" (10s) mechanism in `src/utils.py`.
+    - **Context**: On platforms like X.com, heavy script bundles often take >20s to load. The probe was causing premature interruptions and `ScriptLoadFailure` errors.
+    - **Solution**: Reverted to a single, robust loading attempt with full timeout coverage.
+- **Combined Selector Waiting**: Updated `safe_navigate` to wait for a union of possible content containers (e.g., `article`, `tweetText`, `twitterArticleRichTextView`). This improves support for "X Articles" (long-form content) which use different DOM structures.
+- **Extended Default Timeout**: Increased the default network timeout from 60s to 90s in `config.yaml` to better accommodate slow proxy environments and heavy SPA initializations.
+
 ## [2.3.0] - 2026-02-12 (UX & Resilience)
 
 ### Features

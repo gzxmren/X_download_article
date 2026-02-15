@@ -65,3 +65,13 @@ async def main():
     *   **Auto-Correction**: Heuristic fixing of common typos (e.g., `hhttps://`, missing scheme).
     *   **Strict Validation**: Regex-based filtering to ensure only structurally valid URLs (http/https) are processed.
     *   **Fail-Fast**: Invalid URLs are logged and skipped immediately before any browser or network initialization.
+
+## 6. SPA Navigation Strategy (Updated v2.3.1)
+
+### The "Fast Probe" Lesson
+*   **Initial Approach (v2.2.0)**: A "Step-up Timeout" was implemented where a 10s probe was used to quickly detect dead links.
+*   **The Issue**: On platforms like X.com, modern React bundles are massive (~3MB+). Under slow proxies or high latency, 10s is insufficient even for `domcontentloaded`. Aborting the connection during this phase caused `ScriptLoadFailure` and left the browser in an inconsistent state for retries.
+*   **Revised Strategy**:
+    *   **Single Robust Attempt**: Removed the probe. The system now uses a single loading cycle with the full configured timeout (90s).
+    *   **Combined Selector Wait**: Instead of waiting for a single specific tag like `article`, the engine now waits for a **union of probable content containers** (`article OR tweetText OR twitterArticleRichTextView`). 
+    *   **Benefit**: Significant increase in success rates for "X Articles" and slow-loading threads without sacrificing error detection accuracy.

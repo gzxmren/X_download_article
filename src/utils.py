@@ -86,28 +86,21 @@ def load_cookies(file_path: str) -> list:
 
 def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
     """
-    Robust navigation with 'Fail Fast' strategy.
+    Robust navigation.
     
-    1. Fast Probe (10s): Quickly checks if the server is responsive.
-    2. Full Retry: If probe fails, retries with full configured timeout.
+    Removed the 'Fast Probe' strategy as it causes issues with heavy sites like X.com
+    where script bundles take a long time to load and shouldn't be interrupted.
     """
     logger.info(f"Navigating to {url}...")
     
-    # 1. Fast Probe (10s)
     try:
-        # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com due to constant polling
-        page.goto(url, wait_until="domcontentloaded", timeout=10000)
-        # Ensure the specific content is visible (this is the key check)
-        # Using a shorter timeout here as well for the probe
-        page.wait_for_selector(wait_selector, state="visible", timeout=10000)
-        return
-    except (PlaywrightTimeoutError, Exception) as e:
-        logger.warning(f"⚠️  Fast probe failed (10s), retrying with full timeout ({timeout}s)...")
-
-    # 2. Full Attempt (Configured Timeout)
-    try:
+        # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com
         page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-        page.wait_for_selector(wait_selector, state="visible", timeout=timeout * 1000)
+        
+        # Ensure the specific content is visible (this is the key check)
+        # We use a combined selector to be more robust
+        combined_selector = f"{wait_selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView']"
+        page.wait_for_selector(combined_selector, state="visible", timeout=timeout * 1000)
     except Exception as e:
         logger.warning(f"Navigation attempt failed for {url}: {e}")
         raise e
