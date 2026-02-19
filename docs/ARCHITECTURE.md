@@ -86,3 +86,20 @@ src/
 ├── record_manager.py    # DB Logic
 └── templates/           # Jinja2 Templates
 ```
+
+## 6. Design Decisions & Implementation Details
+
+### A. Hybrid Rendering & Extraction Architecture
+The system employs a **Hybrid Architecture** for content acquisition:
+1.  **Playwright (Chromium)**: Used for initial navigation and HTML rendering. It handles JavaScript execution, Single Page Application (SPA) routing, and complex anti-bot challenges that a simple HTTP client cannot solve.
+2.  **Requests (requests.Session)**: Used for downloading binary assets (images).
+    *   **Why?**: Higher performance through `ThreadPoolExecutor` and more granular control over retries and resource streaming without the overhead of additional browser tabs.
+
+### B. Synchronization of Session Context
+To ensure the Hybrid Architecture works reliably, the system maintains strict synchronization between the Browser Context and the Requests Session:
+*   **Authentication**: Cookies from the Playwright context are synced to the `requests.Session` before asset downloading.
+*   **Network Path (Proxy/DNS)**: Both components must share the same network environment. Discrepancies (e.g., the browser using a proxy while the session is forced to "direct") lead to `NameResolutionError` or `ConnectionError` when accessing blocked CDNs (like `pbs.twimg.com`).
+*   **Fix (2026-02-16)**: Restored synchronization by enabling `trust_env=True` for the session and implementing a unified proxy configuration that applies to both the browser launch and the HTTP client.
+
+---
+*Last Updated: 2026-02-16*

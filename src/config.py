@@ -91,6 +91,7 @@ class Config:
     MAX_FILENAME_LENGTH = _loader.get("app.max_filename_length")
     MAX_TOPIC_LENGTH = _loader.get("app.max_topic_length")
     USER_AGENT = _loader.get("app.user_agent")
+    PROXY = _loader.get("app.proxy")
 
     # Selectors
     class Selectors:

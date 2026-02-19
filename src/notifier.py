@@ -21,7 +21,13 @@ class TelegramNotifier:
         }
 
         try:
-            response = requests.post(url, json=payload, timeout=10)
+            proxies = None
+            if Config.PROXY:
+                proxies = {
+                    "http": Config.PROXY,
+                    "https": Config.PROXY,
+                }
+            response = requests.post(url, json=payload, timeout=10, proxies=proxies)
             response.raise_for_status()
             logger.info("Telegram notification sent successfully.")
         except Exception as e:

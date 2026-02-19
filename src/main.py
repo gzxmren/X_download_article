@@ -40,7 +40,15 @@ class XDownloader:
         
         # Performance: Global resource pool
         self.session = requests.Session()
-        self.session.trust_env = False
+        self.session.trust_env = True
+        
+        if Config.PROXY:
+            self.session.proxies = {
+                "http": Config.PROXY,
+                "https": Config.PROXY,
+            }
+            logger.info(f"Using proxy for downloads: {Config.PROXY}")
+
         self.session.headers.update({
             "User-Agent": Config.USER_AGENT,
             "Referer": "https://x.com/",
@@ -274,7 +282,12 @@ def main():
     try:
         with sync_playwright() as p:
             logger.info(f"Launching Chromium (Headless: {args.headless})")
-            browser = p.chromium.launch(headless=args.headless)
+            
+            launch_kwargs = {"headless": args.headless}
+            if Config.PROXY:
+                launch_kwargs["proxy"] = {"server": Config.PROXY}
+                
+            browser = p.chromium.launch(**launch_kwargs)
             context = browser.new_context(viewport={"width": 1280, "height": 1080}, user_agent=Config.USER_AGENT)
 
             cookies = load_cookies(args.cookies)
