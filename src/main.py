@@ -222,63 +222,9 @@ class XDownloader:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 
-def main():
-    parser = argparse.ArgumentParser(description="Universal Article Downloader (Plugin Architecture)")
-    parser.add_argument("input", nargs="?", help="URL or file with URLs")
-    parser.add_argument("--cookies", "-c", default="input/cookies.txt")
-    parser.add_argument("--output", "-o", default="output")
-    parser.add_argument("--headless", action="store_false", dest="headless", help="Show browser window")
-    parser.add_argument("--scroll", type=int, default=Config.DEFAULT_SCROLL_COUNT)
-    parser.add_argument("--timeout", type=int, default=Config.DEFAULT_TIMEOUT)
-    parser.add_argument("--markdown", action="store_true", help="Save as Markdown")
-    parser.add_argument("--pdf", action="store_true", help="Export as PDF")
-    parser.add_argument("--epub", action="store_true", help="Export as EPUB")
-    parser.add_argument("--force", action="store_true", help="Force redownload")
-    
-    parser.set_defaults(headless=Config.HEADLESS, markdown=False)
-    args = parser.parse_args()
-
-    # Interactive mode if no input provided
-    if not args.input:
-        print("Please enter the URL or file path:")
-        try:
-            args.input = input().strip()
-        except EOFError:
-            return
-
-    if not args.input:
-        print("No input provided. Exiting.")
-        return
-
-    # Prepare & Validate URLs
-    raw_urls = []
-    if os.path.isfile(args.input):
-        try:
-            with open(args.input, 'r', encoding='utf-8') as f:
-                raw_urls = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
-        except Exception as e:
-             logger.error(f"Failed to read input file: {e}")
-             return
-    else:
-        raw_urls = [args.input.strip()]
-
-    urls = []
-    for r_url in raw_urls:
-        valid_url = validate_and_fix_url(r_url)
-        if valid_url:
-            urls.append(valid_url)
-        else:
-            logger.warning(f"⚠️  Skipping invalid URL: {r_url}")
-
-    if not urls:
-        logger.error("No valid URLs to process.")
-        return
-
-    logger.info(f"Processing {len(urls)} valid URLs...")
-
-    downloader = XDownloader(args.output, args.markdown, args.pdf, args.epub)
+def _process_urls_in_session(downloader: XDownloader, args, urls_to_process: List[str]):
     failures = []
-
+    
     try:
         with sync_playwright() as p:
             logger.info(f"Launching Chromium (Headless: {args.headless})")
@@ -297,7 +243,7 @@ def main():
 
             page = context.new_page()
 
-            for url in urls:
+            for url in urls_to_process:
                 try:
                     result = downloader.process_url(page, url, args.scroll, args.timeout, args.force)
                     if result:
@@ -311,7 +257,9 @@ def main():
         downloader.close()
     
     logger.info("Generating Index...")
-    IndexGenerator(args.output, ordered_urls=urls).generate()
+    # Pass only successfully processed URLs to IndexGenerator if needed, or all initially planned.
+    # For now, keeping the original behavior of passing all initially planned URLs.
+    IndexGenerator(args.output, ordered_urls=urls_to_process).generate()
     
     if failures:
         fail_path = os.path.join(args.output, "failures.json")
@@ -319,5 +267,106 @@ def main():
             json.dump(failures, f, indent=2, ensure_ascii=False)
     
     logger.info("Finished.")
+    return failures
+
+def main():
+    parser = argparse.ArgumentParser(description="Universal Article Downloader (Plugin Architecture)")
+    parser.add_argument("input", nargs="?", help="URL or file with URLs")
+    parser.add_argument("--cookies", "-c", default="input/cookies.txt")
+    parser.add_argument("--output", "-o", default="output")
+    parser.add_argument("--headless", action="store_false", dest="headless", help="Show browser window")
+    parser.add_argument("--scroll", type=int, default=Config.DEFAULT_SCROLL_COUNT)
+    parser.add_argument("--timeout", type=int, default=Config.DEFAULT_TIMEOUT)
+    parser.add_argument("--markdown", action="store_true", help="Save as Markdown")
+    parser.add_argument("--pdf", action="store_true", help="Export as PDF")
+    parser.add_argument("--epub", action="store_true", help="Export as EPUB")
+    parser.add_argument("--force", action="store_true", help="Force redownload")
+    
+    parser.set_defaults(headless=Config.HEADLESS, markdown=False)
+    args = parser.parse_args()
+
+    raw_urls = []
+    
+    # Check for input from arguments first
+    if args.input:
+        logger.info(f"Reading input from argument: {args.input}")
+        if os.path.isfile(args.input):
+            try:
+                with open(args.input, 'r', encoding='utf-8') as f:
+                    raw_urls = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+            except Exception as e:
+                logger.error(f"Failed to read input file: {e}")
+                return
+        else:
+            raw_urls = [args.input.strip()]
+            
+    # If no argument input, check for piped input
+    elif not sys.stdin.isatty():
+        logger.info("Reading input from stdin (pipe)...")
+        raw_urls = [line.strip() for line in sys.stdin if line.strip()]
+
+    # If we have URLs from args or pipe, process them
+    if raw_urls:
+        urls = []
+        for r_url in raw_urls:
+            valid_url = validate_and_fix_url(r_url)
+            if valid_url:
+                urls.append(valid_url)
+            else:
+                logger.warning(f"⚠️  Skipping invalid URL: {r_url}")
+        
+        if not urls:
+            logger.error("No valid URLs to process.")
+            return
+            
+        logger.info(f"Processing {len(urls)} valid URLs...")
+        downloader = XDownloader(args.output, args.markdown, args.pdf, args.epub)
+        _process_urls_in_session(downloader, args, urls)
+        return # Exit after processing
+
+    # Otherwise, enter true interactive mode
+    logger.info("Entering interactive mode. Enter URL or file path, or type 'quit' to exit.")
+    while True:
+        try:
+            user_input = input(">>> ").strip()
+        except EOFError:
+            logger.info("EOF detected. Exiting interactive mode.")
+            break
+
+        if not user_input:
+            continue
+        
+        if user_input.lower() in ['quit', 'exit']:
+            logger.info("Exiting interactive mode.")
+            break
+
+        interactive_raw_urls = []
+        if os.path.isfile(user_input):
+            try:
+                with open(user_input, 'r', encoding='utf-8') as f:
+                    interactive_raw_urls = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+            except Exception as e:
+                logger.error(f"Failed to read input file: {e}")
+                continue
+        else:
+            interactive_raw_urls = [user_input]
+
+        interactive_urls = []
+        for r_url in interactive_raw_urls:
+            valid_url = validate_and_fix_url(r_url)
+            if valid_url:
+                interactive_urls.append(valid_url)
+            else:
+                logger.warning(f"⚠️  Skipping invalid URL: {r_url}")
+        
+        if not interactive_urls:
+            logger.error("No valid URLs to process from your input.")
+            continue
+        
+        logger.info(f"Processing {len(interactive_urls)} valid URLs from input...")
+        
+        # Create a new downloader for each interactive turn to ensure clean sessions
+        current_downloader = XDownloader(args.output, args.markdown, args.pdf, args.epub)
+        _process_urls_in_session(current_downloader, args, interactive_urls)
 if __name__ == "__main__":
     main()
