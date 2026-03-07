@@ -8,18 +8,35 @@
 
 ### A. 全能下载器 (`src/main.py`)
 *   **目的**：执行网页抓取、内容提取及文件生成。
-*   **调用方式**：
-    ```bash
-    # 方式 1：交互式输入 (推荐用于复杂 URL)
-    python3 src/main.py
-    # 按提示粘贴 URL 即可，无需担心引号转义问题
-    
-    # 方式 2：下载单个 URL (命令行参数)
-    python3 src/main.py "https://x.com/user/status/123" --markdown
-    
-    # 方式 3：批量下载
-    python3 src/main.py input/urls.txt --markdown --pdf
-    ```
+*   **调用方式**：支持三种灵活的输入模式。
+
+    *   **1. 参数模式 (推荐用于脚本自动化)**
+        直接将 URL 或包含 URL 的文件路径作为参数传入。
+        ```bash
+        # 处理单个 URL
+        python3 src/main.py "https://x.com/user/status/123"
+
+        # 批量处理文件中的所有 URL
+        python3 src/main.py input/urls.txt
+        ```
+
+    *   **2. 管道模式 (与其他命令组合)**
+        利用 Shell 的管道 (`|`) 将其他命令的输出作为本程序的输入。
+        ```bash
+        # 使用 cat 命令读取文件并管道输入
+        cat input/urls.txt | python3 src/main.py
+
+        # 使用 echo 命令处理单个 URL
+        echo "https://x.com/user/status/123" | python3 src/main.py
+        ```
+
+    *   **3. 交互模式 (手动操作)**
+        不带任何参数直接运行，程序将进入交互式会话，您可以逐条输入 URL。
+        ```bash
+        python3 src/main.py
+        ```
+        在 `>>>` 提示符后输入 URL 或文件路径，按回车执行。输入 `quit` 或 `exit` 可退出。
+
 *   **常用参数**：
     *   `--markdown`: 生成 `.md` 格式文件。
     *   `--pdf`: 生成 `.pdf` 格式文件（需 Playwright 环境）。

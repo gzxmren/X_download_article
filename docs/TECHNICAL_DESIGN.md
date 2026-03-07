@@ -1,77 +1,35 @@
-# Technical Design & Implementation Notes
 
-This document records technical decisions, architectural patterns, and proposed optimizations for the X Article Downloader project.
 
-## 1. Image Download Optimization (Implemented v1.4.0)
-*   **Model**: Hybrid Parallel (Playwright Main Thread + Requests ThreadPool).
-*   **Detail**: High efficiency for asset retrieval without thread-safety risks.
+---
 
-## 2. Global Index & Pagination (Implemented v1.6.0, Updated v2.3.0)
-*   **Engine**: Jinja2 (Backend) + Vanilla JS (Frontend).
-*   **Feature**: Static site generation with client-side search, sort, and pagination.
-*   **Configuration**: Pagination size (items per page) is configurable via `config.yaml` (`app.items_per_page`), allowing users to control information density.
+## 7. URL 下载状态判断机制 (v2.4.0)
 
-## 3. Multi-URL Concurrency Design (Target: v2.0)
+程序通过一个专门的记录系统来判断一篇文章是否已经下载过，从而避免重复工作，这个机制是保证程序高效、可重复运行的关键。
 
-### Problem Statement
-Currently, URLs are processed sequentially. One URL must complete rendering, scrolling, and metadata extraction before the next begins. This idle time during network waits significantly limits throughput.
+整个判断流程如下：
 
-### Proposed Architecture: Full Asyncio Transition
+### **第一步：启动时加载历史记录**
 
-To support downloading multiple articles at once, the core engine must be converted to an asynchronous non-blocking model.
+1.  当程序（`XDownloader`）初始化时，它会创建一个 `RecordManager` 的实例 (`src/record_manager.py`)。
+2.  `RecordManager` 在初始化时，会立即读取 `output/records.csv` 文件。
+3.  它将 `records.csv` 中的每一行数据加载到内存中，并构建一个以 **URL 为键 (key)** 的字典。这个内存中的字典就像一个快速查询的缓存，存储了所有已处理过的 URL 及其下载状态。
 
-#### Core Components:
+### **第二步：处理前进行检查**
 
-1.  **Async Playwright (`async_api`)**:
-    *   Switch from `sync_playwright` to `async_playwright`.
-    *   Methods like `page.goto`, `page.wait_for_selector`, and `page.evaluate` will be awaited.
+1.  在对每个 URL 执行任何耗时的网络操作（如浏览器导航、下载图片）**之前**，程序会首先调用 `RecordManager` 的 `is_downloaded(url)` 方法。
+2.  `is_downloaded` 方法会拿着传入的 `url`，去第一步加载到内存的字典中进行查询。
 
-2.  **Browser Context Isolation**:
-    *   Instead of one `context` for all URLs, each download task will create its own `browser.new_context()`.
-    *   **Benefit**: Complete isolation of cookies/cache per task if needed, and light-weight resource sharing under one browser process.
+### **第三步：根据查询结果决策**
 
-3.  **Concurrency Control (Semaphore)**:
-    *   Use `asyncio.Semaphore(limit=3)` to cap the number of active browser tabs.
-    *   **Reasoning**: Avoid CPU/RAM spikes and reduce the risk of being flagged by X's anti-bot systems.
+*   **如果 URL 存在于记录中，并且状态为 `success`**：
+    *   `is_downloaded()` 方法会返回 `True`。
+    *   `XDownloader` 收到这个信号后，会立即跳过该 URL 的处理，并打印一条 `⏭️ Skipping already downloaded: ...` 的日志。
 
-4.  **Logging Traceability**:
-    *   Implement `logging.LoggerAdapter` to inject a unique `request_id` or `short_hash` of the URL into every log record.
-    *   **Benefit**: Allows users to filter logs for a specific URL when multiple tasks are printing to the same console/file simultaneously.
+*   **如果 URL 不在记录中，或记录的状态为 `failed`**：
+    *   `is_downloaded()` 方法会返回 `False`。
+    *   `XDownloader` 知道这是一个全新的任务或一个之前失败的任务，于是开始执行完整的下载、解析和保存流程。
 
-#### Implementation Blueprint (Async Pseudocode)
+### **第四步：下载后更新记录**
 
-```python
-async def process_task(url, semaphore, downloader):
-    async with semaphore:
-        async with browser.new_context() as context:
-            page = await context.new_page()
-            # Navigation, Scrolling, Extraction logic (all awaited)
-            await downloader.process_url(page, url)
-
-async def main():
-    semaphore = asyncio.Semaphore(Config.CONCURRENCY_LIMIT)
-    tasks = [process_task(url, semaphore, downloader) for url in urls]
-    await asyncio.gather(*tasks)
-```
-
-## 4. Single-File High Fidelity (Implemented v1.7.0)
-*   **Logic**: Full CSS extraction from source `<style>` tags.
-*   **Integration**: Injected into Jinja2 head via `{{ styles | safe }}` to ensure 1:1 visual match for archives.
-
-## 5. Robust Input Validation (Implemented v2.3.0)
-*   **Objective**: Prevent resource waste on malformed or typo-ridden URLs.
-*   **Strategy**:
-    *   **Preprocessing**: Centralized `validate_and_fix_url` utility in `src/utils.py`.
-    *   **Auto-Correction**: Heuristic fixing of common typos (e.g., `hhttps://`, missing scheme).
-    *   **Strict Validation**: Regex-based filtering to ensure only structurally valid URLs (http/https) are processed.
-    *   **Fail-Fast**: Invalid URLs are logged and skipped immediately before any browser or network initialization.
-
-## 6. SPA Navigation Strategy (Updated v2.3.1)
-
-### The "Fast Probe" Lesson
-*   **Initial Approach (v2.2.0)**: A "Step-up Timeout" was implemented where a 10s probe was used to quickly detect dead links.
-*   **The Issue**: On platforms like X.com, modern React bundles are massive (~3MB+). Under slow proxies or high latency, 10s is insufficient even for `domcontentloaded`. Aborting the connection during this phase caused `ScriptLoadFailure` and left the browser in an inconsistent state for retries.
-*   **Revised Strategy**:
-    *   **Single Robust Attempt**: Removed the probe. The system now uses a single loading cycle with the full configured timeout (90s).
-    *   **Combined Selector Wait**: Instead of waiting for a single specific tag like `article`, the engine now waits for a **union of probable content containers** (`article OR tweetText OR twitterArticleRichTextView`). 
-    *   **Benefit**: Significant increase in success rates for "X Articles" and slow-loading threads without sacrificing error detection accuracy.
+*   每处理完一个 URL（无论成功还是失败），`XDownloader` 都会调用 `record_manager.save_record()` 方法。
+*   这个方法会更新内存中的记录，并将最新的状态**原子性地写回**到 `output/records.csv` 文件中，确保下次运行时能够读取到最新的状态。

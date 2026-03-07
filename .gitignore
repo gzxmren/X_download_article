@@ -19,3 +19,13 @@ check_proxy.sh
 .DS_Store
 .vscode/
 .idea/
+
+
+actual_folders.txt
+batch_get_x_article.sh
+batch_get_x_article.sh.bak
+batch_get_x_article.sh.bak.2
+docs_folders.txt
+index_folders.txt
+output_folders.txt
+shell_pipeline.txt
