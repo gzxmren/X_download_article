@@ -87,9 +87,6 @@ def load_cookies(file_path: str) -> list:
 def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
     """
     Robust navigation.
-    
-    Removed the 'Fast Probe' strategy as it causes issues with heavy sites like X.com
-    where script bundles take a long time to load and shouldn't be interrupted.
     """
     logger.info(f"Navigating to {url}...")
     
@@ -97,12 +94,19 @@ def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
         # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com
         page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
         
-        # Ensure the specific content is visible (this is the key check)
-        # We use a combined selector to be more robust
-        combined_selector = f"{wait_selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView']"
+        # Combined selector: success selectors OR error selector
+        error_selector = "[data-testid='error-detail']"
+        combined_selector = f"{wait_selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView'], {error_selector}"
+        
         page.wait_for_selector(combined_selector, state="visible", timeout=timeout * 1000)
+        
+        # Check if we hit the error page
+        if page.locator(error_selector).is_visible():
+            raise ValueError("Target content not found: Page does not exist (404/Deleted).")
+            
     except Exception as e:
-        logger.warning(f"Navigation attempt failed for {url}: {e}")
+        if "Target content not found" not in str(e):
+            logger.warning(f"Navigation attempt failed for {url}: {e}")
         raise e
 
 def validate_and_fix_url(url: str) -> str | None:

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2] - 2026-03-07 (Error Handling Optimization)
+
+### Reliability
+- **Early Detection of Non-existent Pages**: Updated `safe_navigate` in `src/utils.py` to recognize X.com's "Page does not exist" state.
+    - **Optimization**: Added `[data-testid='error-detail']` to the combined wait selector.
+    - **Benefit**: Non-existent or deleted tweets now fail fast (~5s) with a clear error message, instead of hanging for the full 90s timeout.
+
 ## [2.3.1] - 2026-02-16 (Reliability & Robustness)
 
 ### Reliability
