@@ -50,26 +50,26 @@ class XExtractor(IExtractor):
         self.soup = BeautifulSoup(html_content, "html.parser")
         self.url = url
         self.selectors = ConfigLoader().get("selectors.x_com", {})
-        
+
         # Initialize Jinja2
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_src = os.path.dirname(current_dir)
         templates_dir = os.path.join(project_src, "templates")
         self.env = Environment(loader=FileSystemLoader(templates_dir))
-        
+
         # --- Precise Anchoring Logic ---
         self.main_article = None
         self.tweet_id = None
-        
+
         # 1. Extract Tweet ID from URL
         # URL format: .../status/123456789...
         match = re.search(r'/status/(\d+)', url)
         if match:
             self.tweet_id = match.group(1)
-            
+
         article_sel = self.selectors.get("article", "article")
         candidates = self.soup.select(article_sel)
-        
+
         if self.tweet_id:
             # 2. Find article containing link to this ID (Permalink)
             # The timestamp in a tweet is usually a link to the tweet itself
@@ -77,7 +77,7 @@ class XExtractor(IExtractor):
                 if art.find("a", href=re.compile(f"/status/{self.tweet_id}")):
                     self.main_article = art
                     break
-        
+
         # Fallback: Use the first one if ID search fails (or no ID found)
         if not self.main_article and candidates:
             # Try to skip potential "sidebar" articles if they are distinct?
@@ -113,7 +113,7 @@ class XExtractor(IExtractor):
 
             # 3. Topic / Title
             topic = ""
-            
+
             # A. Try Longform Article Title first
             art_title_sel = self.selectors.get("article_title")
             if art_title_sel:
@@ -129,7 +129,7 @@ class XExtractor(IExtractor):
                     match = re.search(r'[:：]\s*["“](.+?)["”]\s*/\s*X$', page_title)
                     if match:
                         topic = match.group(1).strip()
-            
+
             # C. Try Tweet Text fallback
             if not topic:
                 text_sel = self.selectors.get("tweet_text", "div[data-testid='tweetText']")
@@ -138,12 +138,12 @@ class XExtractor(IExtractor):
                     full_text = text_div.get_text(separator=" ", strip=True)
                     if full_text:
                         topic = full_text[:100]
-            
+
             if not topic:
                 topic = "Image_Only"
-                
+
             meta.title = topic
-            
+
             # Stable Naming: Include Tweet ID
             id_suffix = f"_{self.tweet_id}" if self.tweet_id else ""
             raw_folder = f"{meta.author}_{topic[:40]}{id_suffix}_{meta.date}"
@@ -152,16 +152,16 @@ class XExtractor(IExtractor):
         except Exception as e:
             logger.warning(f"Metadata extraction warning: {e}")
             meta.folder_name = get_filename_from_url(self.url)
-            
+
         return meta
 
     def get_clean_html(self) -> str:
         clean_soup = BeautifulSoup(str(self.soup), "html.parser")
-        
+
         # 1. Remove dangerous tags
         for tag in clean_soup(["script", "noscript", "iframe", "object", "embed"]):
             tag.decompose()
-            
+
         # 2. Remove meta refresh (prevents auto-redirect)
         for meta in clean_soup.find_all("meta", attrs={"http-equiv": re.compile("refresh", re.I)}):
             meta.decompose()
@@ -175,8 +175,7 @@ class XExtractor(IExtractor):
         # 4. Content selection
         # For Longform articles, we might want to prioritize the rich text view
         article_sel = self.selectors.get("article", "article")
-        content_sel = self.selectors.get("article_content")
-        
+
         # Try to find the specific main article in the clean soup
         main_art_in_clean = None
         if self.tweet_id:
@@ -185,7 +184,7 @@ class XExtractor(IExtractor):
                 if art.find("a", href=re.compile(f"/status/{self.tweet_id}")):
                     main_art_in_clean = art
                     break
-        
+
         # Fallback to general selection
         if main_art_in_clean:
             articles = [main_art_in_clean]
@@ -197,7 +196,7 @@ class XExtractor(IExtractor):
 
         article_strings = [str(a) for a in articles]
         page_title = clean_soup.title.string if clean_soup.title else "X Article"
-        
+
         style_tags = clean_soup.find_all("style")
         injected_styles = "\n".join([str(s) for s in style_tags])
 
@@ -219,7 +218,7 @@ class XExtractor(IExtractor):
         images = []
         article_sel = self.selectors.get("article", "article")
         img_sel = self.selectors.get("images", "img")
-        
+
         articles = soup.select(article_sel)
         for article in articles:
             imgs = article.select(img_sel)

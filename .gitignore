@@ -6,8 +6,7 @@ venv/
 .env
 
 # Project specific
-input/cookies.txt
-input/cookies.json
+input/
 output/
 logs/
 debug_failed_extraction.html

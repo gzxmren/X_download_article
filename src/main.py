@@ -28,6 +28,10 @@ from src.exporter import Exporter
 from src.record_manager import RecordManager
 from src.models import ArticleMetadata, DownloadResult
 from src.plugin_manager import PluginManager
+from src.exceptions import (
+    XDownloaderError, NavigationTimeoutError, PlatformBlockedError,
+    ExtractionError, PluginNotFoundError
+)
 
 class XDownloader:
     def __init__(self, output_root: str, save_markdown: bool = True, pdf_export: bool = False, epub_export: bool = False):
@@ -74,10 +78,105 @@ class XDownloader:
                     f.write(chunk)
         return True
 
+    def _get_plugin(self, url: str):
+        try:
+            return self.plugin_manager.get_plugin(url)
+        except ValueError as e:
+            raise PluginNotFoundError(str(e))
+
+    def _navigate_and_scroll(self, page: Page, url: str, scroll_count: int, timeout: int, plugin):
+        try:
+            safe_navigate(page, url, timeout, plugin.get_wait_selector())
+        except Exception as e:
+            is_timeout = isinstance(e, PlaywrightTimeoutError) or "timeout" in str(e).lower()
+            if is_timeout:
+                raise NavigationTimeoutError(f"Network Timeout: {str(e)}")
+            
+            # Simple check for block/deleted
+            page_content = page.content().lower()
+            if "suspended" in page_content or "blocked" in page_content or "captcha" in page_content:
+                raise PlatformBlockedError(f"Platform Blocked: {str(e)}")
+            
+            raise XDownloaderError(f"Navigation: {str(e)}")
+
+        if scroll_count > 0:
+            logger.info(f"Scrolling {scroll_count} times...")
+            for _ in range(scroll_count):
+                page.evaluate("window.scrollBy(0, 1000)")
+                time.sleep(1.2)
+
+    def _extract_content(self, page: Page, url: str, plugin):
+        extractor = plugin.get_extractor(page.content(), url)
+        if not extractor.is_valid():
+            raise ExtractionError("No article content found")
+        return extractor
+
+    def _handle_images(self, page: Page, extractor, article_dir: str):
+        assets_dir = os.path.join(article_dir, "assets")
+        os.makedirs(assets_dir, exist_ok=True)
+
+        # Sync cookies
+        pw_cookies = page.context.cookies()
+        for cookie in pw_cookies:
+            self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+
+        raw_html = extractor.get_clean_html()
+        soup = BeautifulSoup(raw_html, "html.parser")
+        images = extractor.get_content_images(soup)
+        
+        download_tasks = []
+        for img, src in images:
+            filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
+            local_filepath = os.path.join(assets_dir, filename)
+            
+            if not os.path.exists(local_filepath):
+                download_tasks.append((img, src, local_filepath))
+            else:
+                img['src'] = os.path.relpath(local_filepath, article_dir)
+                if img.has_attr('srcset'): del img['srcset']
+
+        if download_tasks:
+            logger.info(f"Downloading {len(download_tasks)} images...")
+            futures = {
+                self.executor.submit(self._download_task, self.session, src, path): (img, src, path)
+                for img, src, path in download_tasks
+            }
+            for future in futures:
+                img, src, path = futures[future]
+                try:
+                    if future.result():
+                        img['src'] = os.path.relpath(path, article_dir)
+                        if img.has_attr('srcset'): del img['srcset']
+                except Exception as exc:
+                    logger.warning(f"Image failed: {src}. Error: {exc}")
+        
+        return soup
+
+    def _save_assets(self, article_dir: str, article_meta, final_soup: BeautifulSoup, url: str):
+        html_content = str(final_soup)
+        self._save_html(article_dir, article_meta.folder_name, html_content)
+        
+        if self.save_markdown:
+            markdown_content = f"# Source: {url}\n\n"
+            markdown_content += f"\n\n---\n\n{md(html_content)}"
+            self._save_markdown(article_dir, article_meta.folder_name, markdown_content)
+        
+        with open(os.path.join(article_dir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(article_meta.to_dict(), f, indent=2, ensure_ascii=False)
+        
+        return html_content
+
+    def _export_formats(self, page: Page, article_dir: str, article_meta, html_content: str):
+        assets_dir = os.path.join(article_dir, "assets")
+        if self.pdf_export:
+            Exporter.to_pdf(page, os.path.join(article_dir, f"{article_meta.folder_name}.html"), 
+                           os.path.join(article_dir, f"{article_meta.folder_name}.pdf"))
+        if self.epub_export:
+            Exporter.to_epub(article_meta.title, article_meta.author, html_content, assets_dir, 
+                           os.path.join(article_dir, f"{article_meta.folder_name}.epub"))
+
     def process_url(self, page: Page, url: str, scroll_count: int, timeout: int, force: bool = False) -> Optional[DownloadResult]:
-        """
-        Processes a single URL. Returns DownloadResult if error occurred, else None.
-        """
+        """Processes a single URL with fine-grained error handling."""
         if not force and self.record_manager.is_downloaded(url):
             logger.info(f"⏭️  Skipping already downloaded: {url}")
             return None
@@ -86,127 +185,41 @@ class XDownloader:
         result = DownloadResult(url=url, success=False)
         
         try:
-            # 0. Get Plugin
-            try:
-                plugin = self.plugin_manager.get_plugin(url)
-            except ValueError as e:
-                logger.error(str(e))
-                result.error_msg = str(e)
-                return result
-
-            # 1. Navigate
-            try:
-                safe_navigate(page, url, timeout, plugin.get_wait_selector())
-            except Exception as e:
-                # Check for specific network/timeout indicators
-                is_timeout = isinstance(e, PlaywrightTimeoutError) or "Timeout" in str(e) or "timeout" in str(e)
-                
-                if is_timeout:
-                    logger.warning(f"⚠️  Timeout detected. This might be due to a slow network or the site blocking requests.")
-                    logger.error(f"❌ Failed to load {url} (Network/Timeout): {e}")
-                    meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Network Timeout: {str(e)}")
-                else:
-                    logger.error(f"❌ Failed to load {url}: {e}")
-                    meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Navigation: {str(e)}")
-
-                self.record_manager.save_record(meta.to_dict())
-                result.error_msg = str(e)
-                return result
-
-            # 2. Scroll
-            logger.info(f"Scrolling {scroll_count} times...")
-            for _ in range(scroll_count):
-                page.evaluate("window.scrollBy(0, 1000)")
-                time.sleep(1.2)
-
-            # 3. Extract
-            extractor = plugin.get_extractor(page.content(), url)
-            if not extractor.is_valid():
-                logger.error("No article found.")
-                meta = ArticleMetadata(url=url, status='failed', failure_reason="No article content found")
-                self.record_manager.save_record(meta.to_dict())
-                result.error_msg = "No article found"
-                return result
-
-            # 4. Meta & Folders
+            plugin = self._get_plugin(url)
+            self._navigate_and_scroll(page, url, scroll_count, timeout, plugin)
+            extractor = self._extract_content(page, url, plugin)
+            
             article_meta = extractor.extract_metadata_obj()
-            logger.info(f"Target folder: {article_meta.folder_name}")
-
             article_dir = os.path.join(self.output_root, article_meta.folder_name)
-            assets_dir = os.path.join(article_dir, "assets")
-            os.makedirs(assets_dir, exist_ok=True)
+            
+            final_soup = self._handle_images(page, extractor, article_dir)
+            html_content = self._save_assets(article_dir, article_meta, final_soup, url)
+            self._export_formats(page, article_dir, article_meta, html_content)
 
-            # 5. Parallel Image Processing
-            # Sync cookies
-            pw_cookies = page.context.cookies()
-            for cookie in pw_cookies:
-                self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
-
-            raw_html = extractor.get_clean_html()
-            final_soup = BeautifulSoup(raw_html, "html.parser")
-            
-            # Delegate image finding to plugin
-            images = extractor.get_content_images(final_soup)
-            
-            download_tasks = []
-            for img, src in images:
-                filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
-                local_filepath = os.path.join(assets_dir, filename)
-                
-                if not os.path.exists(local_filepath):
-                    download_tasks.append((img, src, local_filepath))
-                else:
-                    img['src'] = os.path.relpath(local_filepath, article_dir)
-                    if img.has_attr('srcset'): del img['srcset']
-
-            if download_tasks:
-                logger.info(f"Downloading {len(download_tasks)} images...")
-                futures = {
-                    self.executor.submit(self._download_task, self.session, src, path): (img, src, path)
-                    for img, src, path in download_tasks
-                }
-                for future in futures:
-                    img, src, path = futures[future]
-                    try:
-                        if future.result():
-                            img['src'] = os.path.relpath(path, article_dir)
-                            if img.has_attr('srcset'): del img['srcset']
-                    except Exception as exc:
-                        if "timeout" in str(exc).lower():
-                            logger.warning(f"⚠️  Image download timed out: {src}")
-                        else:
-                            logger.warning(f"Image failed: {src}. Error: {exc}")
-
-            # 6. Save Files
-            html_content = str(final_soup)
-            self._save_html(article_dir, article_meta.folder_name, html_content)
-            
-            if self.save_markdown:
-                markdown_content = f"# Source: {url}\n\n"
-                # Simple fallback: Convert the whole final HTML
-                markdown_content += f"\n\n---\n\n{md(html_content)}"
-                self._save_markdown(article_dir, article_meta.folder_name, markdown_content)
-            
-            # 7. Metadata JSON
-            with open(os.path.join(article_dir, "meta.json"), "w", encoding="utf-8") as f:
-                json.dump(article_meta.to_dict(), f, indent=2, ensure_ascii=False)
-            
-            # 8. Export
-            if self.pdf_export:
-                Exporter.to_pdf(page, os.path.join(article_dir, f"{article_meta.folder_name}.html"), 
-                               os.path.join(article_dir, f"{article_meta.folder_name}.pdf"))
-            if self.epub_export:
-                Exporter.to_epub(article_meta.title, article_meta.author, html_content, assets_dir, 
-                               os.path.join(article_dir, f"{article_meta.folder_name}.epub"))
-            
-            # Success
+            # Finalize Success
             article_meta.status = 'success'
             self.record_manager.save_record(article_meta.to_dict())
             logger.info(f"✅ Completed: {article_meta.folder_name}")
             return None
 
+        except (NavigationTimeoutError, PlatformBlockedError) as e:
+            logger.error(f"❌ {type(e).__name__}: {url} - {e}")
+            meta = ArticleMetadata(url=url, status='failed', failure_reason=str(e))
+            self.record_manager.save_record(meta.to_dict())
+            result.error_msg = str(e)
+            return result
+        except ExtractionError as e:
+            logger.error(f"❌ Extraction Error: {url} - {e}")
+            meta = ArticleMetadata(url=url, status='failed', failure_reason="No article content found")
+            self.record_manager.save_record(meta.to_dict())
+            result.error_msg = str(e)
+            return result
+        except PluginNotFoundError as e:
+            logger.error(f"❌ Plugin Error: {url} - {e}")
+            result.error_msg = str(e)
+            return result
         except Exception as e:
-            logger.critical(f"Critical error: {e}", exc_info=True)
+            logger.critical(f"Critical error on {url}: {e}", exc_info=True)
             meta = ArticleMetadata(url=url, status='failed', failure_reason=f"Critical: {str(e)}")
             self.record_manager.save_record(meta.to_dict())
             result.error_msg = str(e)
@@ -225,6 +238,8 @@ class XDownloader:
 def _process_urls_in_session(downloader: XDownloader, args, urls_to_process: List[str]):
     failures = []
     
+    browser = None
+    context = None
     try:
         with sync_playwright() as p:
             logger.info(f"Launching Chromium (Headless: {args.headless})")
@@ -249,12 +264,21 @@ def _process_urls_in_session(downloader: XDownloader, args, urls_to_process: Lis
                     if result:
                         failures.append(result.__dict__)
                 except KeyboardInterrupt:
-                    logger.warning(f"\n⚠️  User skipped {url} (Ctrl+C detected). Moving to next...")
+                    logger.warning(f"\n⚠️  Interrupted by user. Cleaning up...")
+                    break
+                except Exception as e:
+                    logger.error(f"Unexpected error processing {url}: {e}")
                     continue
 
-            browser.close()
+            if browser:
+                browser.close()
+    except Exception as e:
+        logger.critical(f"Critical browser error: {e}")
     finally:
-        downloader.close()
+        # Emergency cleanup if context manager fails
+        try:
+            if downloader: downloader.close()
+        except: pass
     
     logger.info("Generating Index...")
     # Pass only successfully processed URLs to IndexGenerator if needed, or all initially planned.
