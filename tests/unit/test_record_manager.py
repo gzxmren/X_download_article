@@ -1,6 +1,7 @@
 import os
 import csv
 import pytest
+from unittest.mock import MagicMock, mock_open
 from src.record_manager import RecordManager
 
 @pytest.fixture
@@ -14,7 +15,8 @@ def test_init_creates_csv(temp_csv):
     assert os.path.exists(temp_csv)
     with open(temp_csv, 'r') as f:
         header = f.readline().strip()
-        assert header == "url,status,title,author,published_date,folder_name,timestamp,failure_reason,source"
+        expected = "url,status,title,author,published_date,folder_name,local_path,timestamp,failure_reason,source"
+        assert header == expected
 
 def test_save_and_read_memory(temp_csv):
     """Test saving a record updates memory and file."""
@@ -55,16 +57,18 @@ def test_do_not_overwrite_success_with_failure(temp_csv):
     record = rm._records[url]
     assert record['status'] == 'success'
     
-def test_atomic_write_recovery(temp_csv):
+def test_atomic_write_recovery(temp_csv, mocker):
     """
-    Simulate a corruption by writing garbage to a file, 
-    then ensure RecordManager handles it gracefully (via backup or reset).
-    NOTE: Our current impl backs up and resets on load error.
+    Simulate a corruption by causing a load error, 
+    then ensure RecordManager handles it gracefully.
     """
-    # Create corrupted file
+    # 1. Create a file
     with open(temp_csv, 'w') as f:
-        f.write("GARBAGE_DATA_NO_CSV_STRUCTURE")
-        
+        f.write("GARBAGE")
+    
+    # 2. Mock DictReader to raise error during __init__
+    mocker.patch("csv.DictReader", side_effect=Exception("CSV Error"))
+    
     rm = RecordManager(temp_csv)
     # Should start empty but safe
     assert len(rm._records) == 0

@@ -13,6 +13,7 @@ class ArticleMetadata:
     author: str = "Unknown"
     date: str = "NoDate"
     folder_name: str = ""
+    local_path: str = ""
     download_time: str = field(default_factory=lambda: datetime.now().isoformat())
     status: str = "pending" # pending, success, failed
     failure_reason: str = ""
@@ -27,6 +28,7 @@ class ArticleMetadata:
             'author': self.author,
             'published_date': self.date,
             'folder_name': self.folder_name,
+            'local_path': self.local_path,
             'timestamp': self.download_time,
             'failure_reason': self.failure_reason,
             'source': self.source

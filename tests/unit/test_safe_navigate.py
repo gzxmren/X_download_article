@@ -9,6 +9,9 @@ def test_safe_navigate_success():
     url = "http://example.com"
     timeout = 30
     selector = "div.content"
+    
+    # Mock locator().is_visible() to return False so it doesn't think it's an error page
+    mock_page.locator.return_value.is_visible.return_value = False
 
     safe_navigate(mock_page, url, timeout, selector)
 
@@ -16,8 +19,9 @@ def test_safe_navigate_success():
     mock_page.goto.assert_called_once_with(url, wait_until="domcontentloaded", timeout=30000)
     
     # Should check selector visibility with full timeout
-    # Note: safe_navigate now uses a combined selector
-    combined_selector = f"{selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView']"
+    # Note: safe_navigate now uses a combined selector with error detail
+    error_selector = "[data-testid='error-detail']"
+    combined_selector = f"{selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView'], {error_selector}"
     mock_page.wait_for_selector.assert_called_once_with(combined_selector, state="visible", timeout=30000)
 
 def test_safe_navigate_fail_goto():

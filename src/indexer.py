@@ -15,40 +15,31 @@ class IndexGenerator:
         self.output_root = output_root
         self.ordered_urls = ordered_urls or []
 
-    def generate(self):
-        """Scans all subdirectories for meta.json and rebuilds index.html with client-side search/sort."""
+    def generate(self, records: list = None):
+        """
+        Builds index.html. 
+        Uses provided records (from RecordManager memory cache) for fast generation,
+        or falls back to scanning the disk if no records are provided.
+        """
         articles = []
         
-        # Scan directories
-        if os.path.exists(self.output_root):
-            for entry in os.scandir(self.output_root):
-                if entry.is_dir():
-                    meta_path = os.path.join(entry.path, "meta.json")
-                    if os.path.exists(meta_path):
-                        try:
-                            with open(meta_path, 'r', encoding='utf-8') as f:
-                                meta = json.load(f)
-                                # Ensure relative path is correct for linking
-                                folder_encoded = quote(entry.name)
-                                # Filename logic: folder_name (new) -> filename_base (legacy) -> default 'article'
-                                fname = meta.get('folder_name') or meta.get('filename_base', 'article')
-                                filename_encoded = quote(fname)
-                                meta['local_path'] = f"{folder_encoded}/{filename_encoded}.html"
-                                
-                                # Date Display Logic: Use processing time (timestamp) as requested
-                                # Fallback to published_date if timestamp is missing
-                                raw_date = meta.get('timestamp') or meta.get('download_time')
-                                
-                                if raw_date:
-                                    # Extract YYYY-MM-DD from ISO format
-                                    meta['date'] = raw_date.split('T')[0]
-                                else:
-                                    # Legacy fallback
-                                    meta['date'] = meta.get('published_date') or meta.get('date') or "Unknown"
-                                    
-                                articles.append(meta)
-                        except Exception as e:
-                            print(f"Error reading {meta_path}: {e}")
+        if records:
+            # --- Fast Path: Use provided memory-cached records ---
+            for rec in records:
+                if rec.get('status') != 'success':
+                    continue
+                
+                folder_name = rec.get('folder_name')
+                if not folder_name:
+                    continue
+                
+                # Lightweight Liveness Check: Only check if folder exists, don't read meta.json
+                full_folder_path = os.path.join(self.output_root, folder_name)
+                if os.path.isdir(full_folder_path):
+                    articles.append(self._format_record_for_index(rec))
+        else:
+            # --- Legacy/Fallback Path: Scan disk (slow, 800+ IOs) ---
+            articles = self._scan_disk_for_articles()
 
         # Sort Logic (Initial backend sort)
         # Sort by timestamp (new) or download_time (legacy) descending
@@ -77,3 +68,61 @@ class IndexGenerator:
             
         except Exception as e:
             print(f"Index generation failed: {e}")
+
+    def _format_record_for_index(self, rec: dict) -> dict:
+        """Normalizes a CSV record for the Jinja2 template using stored paths."""
+        local_path = rec.get('local_path', '')
+        
+        # Build article object
+        meta = rec.copy()
+        
+        if local_path:
+            # path is stored as "folder/file.html", we need to quote each part
+            parts = local_path.split('/')
+            meta['local_path'] = "/".join([quote(p) for p in parts])
+        else:
+            # Fallback for old records without local_path
+            folder_name = rec.get('folder_name', '')
+            meta['local_path'] = f"{quote(folder_name)}/{quote(folder_name)}.html"
+        
+        # Date Display Logic
+        raw_date = rec.get('timestamp') or rec.get('download_time')
+        if raw_date and 'T' in raw_date:
+            meta['date'] = raw_date.split('T')[0]
+        elif raw_date and ' ' in raw_date:
+            meta['date'] = raw_date.split(' ')[0]
+        else:
+            meta['date'] = rec.get('published_date') or "Unknown"
+            
+        return meta
+
+    def _scan_disk_for_articles(self) -> list:
+        """Legacy slow method: Scans disk for meta.json files."""
+        articles = []
+        if os.path.exists(self.output_root):
+            for entry in os.scandir(self.output_root):
+                if entry.is_dir():
+                    meta_path = os.path.join(entry.path, "meta.json")
+                    if os.path.exists(meta_path):
+                        try:
+                            with open(meta_path, 'r', encoding='utf-8') as f:
+                                meta = json.load(f)
+                                folder_encoded = quote(entry.name)
+                                fname = meta.get('folder_name') or meta.get('filename_base', 'article')
+                                filename_encoded = quote(fname)
+                                meta['local_path'] = f"{folder_encoded}/{filename_encoded}.html"
+                                raw_date = meta.get('timestamp') or meta.get('download_time')
+                                if raw_date:
+                                    # Normalize both 'T' and ' ' separators
+                                    if 'T' in raw_date:
+                                        meta['date'] = raw_date.split('T')[0]
+                                    elif ' ' in raw_date:
+                                        meta['date'] = raw_date.split(' ')[0]
+                                    else:
+                                        meta['date'] = raw_date
+                                else:
+                                    meta['date'] = meta.get('published_date') or "Unknown"
+                                articles.append(meta)
+                        except Exception as e:
+                            print(f"Error reading {meta_path}: {e}")
+        return articles
