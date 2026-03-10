@@ -2,10 +2,43 @@ import os
 import re
 import hashlib
 import json
+import socket
+import ipaddress
 from urllib.parse import urlparse
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 from src.config import Config
 from src.logger import logger
+
+def is_safe_url(url: str) -> bool:
+    """
+    Check if a URL is safe for downloading to prevent SSRF.
+    - Scheme must be http or https.
+    - Hostname must not resolve to a private/reserved IP address.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        # Resolve hostname to IP
+        # Note: We use getaddrinfo to handle IPv6 and multiple IPs
+        addr_info = socket.getaddrinfo(hostname, None)
+        for family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+                logger.warning(f"Blocked unsafe URL (private/reserved IP): {url} -> {ip_str}")
+                return False
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error validating URL safety: {url}. Error: {e}")
+        return False
 
 def sanitize_filename(text: str) -> str:
     """
@@ -84,7 +117,7 @@ def load_cookies(file_path: str) -> list:
     except (json.JSONDecodeError, UnicodeDecodeError):
         return parse_netscape_cookies(file_path)
 
-def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
+def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str | list):
     """
     Robust navigation.
     """
@@ -94,7 +127,11 @@ def safe_navigate(page: Page, url: str, timeout: int, wait_selector: str):
         # Use 'domcontentloaded' - 'networkidle' is too flaky on X.com
         page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
         
-        # Combined selector: success selectors OR error selector
+        # 1. Handle list of selectors
+        if isinstance(wait_selector, list):
+            wait_selector = ", ".join(wait_selector)
+
+        # 2. Combined selector: success selectors OR error selector
         error_selector = "[data-testid='error-detail']"
         combined_selector = f"{wait_selector}, div[data-testid='tweetText'], div[data-testid='twitterArticleRichTextView'], {error_selector}"
         

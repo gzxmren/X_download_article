@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.3] - 2026-03-10 (Security Enhancement: SSRF Protection)
+
+### Security
+- **SSRF Defense Implementation**: Added robust Server-Side Request Forgery (SSRF) protection for image downloads in `src/main.py`.
+    - **Validation**: Introduced `is_safe_url` in `src/utils.py` to validate URLs before any network request.
+    - **Network Constraints**: All download URLs are now resolved to IP addresses; requests to private, loopback (localhost), link-local, or reserved IP ranges are strictly blocked.
+    - **Protocol Safety**: Restricts image download schemes to `http` and `https` only.
+    - **Verification**: Added comprehensive unit tests in `tests/unit/test_utils.py` covering various attack vectors.
+
 ## [2.3.2] - 2026-03-07 (Error Handling Optimization)
 
 ### Reliability

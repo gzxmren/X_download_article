@@ -8,6 +8,8 @@ import requests
 from datetime import datetime
 from typing import Optional, List
 from concurrent.futures import ThreadPoolExecutor
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from playwright.sync_api import sync_playwright, Page, TimeoutError as PlaywrightTimeoutError
 from markdownify import markdownify as md
 from bs4 import BeautifulSoup
@@ -20,7 +22,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Import modules
-from src.utils import load_cookies, safe_navigate, validate_and_fix_url
+from src.utils import load_cookies, safe_navigate, validate_and_fix_url, is_safe_url
 from src.logger import logger
 from src.indexer import IndexGenerator
 from src.config import Config
@@ -42,36 +44,52 @@ class XDownloader:
         self.record_manager = RecordManager(os.path.join(output_root, "records.csv"))
         self.plugin_manager = PluginManager()
         
-        # Performance: Global resource pool
-        self.session = requests.Session()
-        self.session.trust_env = True
+        # Performance: Global thread pool for parallel image downloads
+        self.executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
+
+    def _create_session(self) -> requests.Session:
+        """Creates a fresh, robust session with retries and proxy config."""
+        session = requests.Session()
+        session.trust_env = True
         
+        # Configure Retries for SSL/Connection resilience
+        retries = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retries, pool_connections=20, pool_maxsize=20)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
         if Config.PROXY:
-            self.session.proxies = {
+            session.proxies = {
                 "http": Config.PROXY,
                 "https": Config.PROXY,
             }
-            logger.info(f"Using proxy for downloads: {Config.PROXY}")
 
-        self.session.headers.update({
+        session.headers.update({
             "User-Agent": Config.USER_AGENT,
             "Referer": "https://x.com/",
             "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         })
-        self.executor = ThreadPoolExecutor(max_workers=Config.MAX_WORKERS)
+        return session
 
     def close(self):
         """Cleanly shutdown global resources."""
         self.executor.shutdown(wait=True)
-        self.session.close()
         logger.info("Downloader resources released.")
 
     @staticmethod
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     def _download_task(session: requests.Session, url: str, save_path: str) -> bool:
         """Executes a single image download task."""
-        with session.get(url, stream=True, timeout=15) as r:
+        if not is_safe_url(url):
+            return False
+            
+        with session.get(url, stream=True, timeout=20) as r:
             r.raise_for_status()
             with open(save_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
@@ -115,40 +133,42 @@ class XDownloader:
         assets_dir = os.path.join(article_dir, "assets")
         os.makedirs(assets_dir, exist_ok=True)
 
-        # Sync cookies
-        pw_cookies = page.context.cookies()
-        for cookie in pw_cookies:
-            self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+        # Create a fresh session for this article's assets to prevent connection pool pollution
+        with self._create_session() as session:
+            # Sync cookies from Playwright
+            pw_cookies = page.context.cookies()
+            for cookie in pw_cookies:
+                session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
 
-        raw_html = extractor.get_clean_html()
-        soup = BeautifulSoup(raw_html, "html.parser")
-        images = extractor.get_content_images(soup)
-        
-        download_tasks = []
-        for img, src in images:
-            filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
-            local_filepath = os.path.join(assets_dir, filename)
+            raw_html = extractor.get_clean_html()
+            soup = BeautifulSoup(raw_html, "html.parser")
+            images = extractor.get_content_images(soup)
             
-            if not os.path.exists(local_filepath):
-                download_tasks.append((img, src, local_filepath))
-            else:
-                img['src'] = os.path.relpath(local_filepath, article_dir)
-                if img.has_attr('srcset'): del img['srcset']
+            download_tasks = []
+            for img, src in images:
+                filename = hashlib.md5(src.encode()).hexdigest() + ".jpg"
+                local_filepath = os.path.join(assets_dir, filename)
+                
+                if not os.path.exists(local_filepath):
+                    download_tasks.append((img, src, local_filepath))
+                else:
+                    img['src'] = os.path.relpath(local_filepath, article_dir)
+                    if img.has_attr('srcset'): del img['srcset']
 
-        if download_tasks:
-            logger.info(f"Downloading {len(download_tasks)} images...")
-            futures = {
-                self.executor.submit(self._download_task, self.session, src, path): (img, src, path)
-                for img, src, path in download_tasks
-            }
-            for future in futures:
-                img, src, path = futures[future]
-                try:
-                    if future.result():
-                        img['src'] = os.path.relpath(path, article_dir)
-                        if img.has_attr('srcset'): del img['srcset']
-                except Exception as exc:
-                    logger.warning(f"Image failed: {src}. Error: {exc}")
+            if download_tasks:
+                logger.info(f"Downloading {len(download_tasks)} images...")
+                futures = {
+                    self.executor.submit(self._download_task, session, src, path): (img, src, path)
+                    for img, src, path in download_tasks
+                }
+                for future in futures:
+                    img, src, path = futures[future]
+                    try:
+                        if future.result():
+                            img['src'] = os.path.relpath(path, article_dir)
+                            if img.has_attr('srcset'): del img['srcset']
+                    except Exception as exc:
+                        logger.warning(f"Image failed: {src}. Error: {exc}")
         
         return soup
 
@@ -196,12 +216,18 @@ class XDownloader:
             html_content = self._save_assets(article_dir, article_meta, final_soup, url)
             self._export_formats(page, article_dir, article_meta, html_content)
 
-            # Finalize Success
+            # Finalize Success: Update status and write the final 'sealed' meta.json
             article_meta.status = 'success'
+            article_meta.local_path = f"{article_meta.folder_name}/{article_meta.folder_name}.html"
+            
+            # Re-save meta.json to disk with the final success status
+            with open(os.path.join(article_dir, "meta.json"), "w", encoding="utf-8") as f:
+                json.dump(article_meta.to_dict(), f, indent=2, ensure_ascii=False)
+                
             self.record_manager.save_record(article_meta.to_dict())
-            logger.info(f"✅ Completed: {article_meta.folder_name}")
-            return None
 
+            logger.info(f"✅ Success: {article_meta.title}")
+            return None
         except (NavigationTimeoutError, PlatformBlockedError) as e:
             logger.error(f"❌ {type(e).__name__}: {url} - {e}")
             meta = ArticleMetadata(url=url, status='failed', failure_reason=str(e))
@@ -281,9 +307,9 @@ def _process_urls_in_session(downloader: XDownloader, args, urls_to_process: Lis
         except: pass
     
     logger.info("Generating Index...")
-    # Pass only successfully processed URLs to IndexGenerator if needed, or all initially planned.
-    # For now, keeping the original behavior of passing all initially planned URLs.
-    IndexGenerator(args.output, ordered_urls=urls_to_process).generate()
+    # Get all records from memory for fast indexing
+    all_records = downloader.record_manager.get_all_records()
+    IndexGenerator(args.output).generate(records=all_records)
     
     if failures:
         fail_path = os.path.join(args.output, "failures.json")
